@@ -3,6 +3,7 @@ import pandas as pd
 import osmnx as ox
 import geopandas as gpd
 import matplotlib.pyplot as plt
+import plotly.express as px
 
 LEEUWARDEN = {"north": 53.2178674080337,
               "south": 53.1932515262881,
@@ -46,35 +47,43 @@ def show_place(north: float, south: float, east: float, west: float):
     fig, ax = ox.plot_graph(G)
 
 
-def show_number_of_buildings(city: dict):
+def show_number_of_buildings(city: dict, big_df: pd.DataFrame):
     # extract the buildings within the bounding box
     buildings = ox.geometries_from_bbox(city["north"], city["south"], city["east"], city["west"],
                                         tags={'building': True})
+    new_df = pd.DataFrame(buildings['building']).reset_index(drop=True)
+    new_df["city"] = city["city_name"]
+    df = pd.concat([big_df, new_df], axis=0)
+    # extract the building types from the buildings
+    print(f"totoal number of buildings in {city['city_name']}: {len(buildings)} \n")
+    return df
 
-    # extract the building types from the buildingsimport matplotlib.pyplot as plt
-    building_types = list(set(buildings['building'].values))
-    print(f"totoal number of buildings in {city['city_name']}: {len(buildings)}")
-    relevant_building_types = ["apartments", "residential", "industrial", "office", "house", "hotel"]
-    for type in relevant_building_types:
-        print(f"number of buildings of type {type}: {len(buildings.query(f'building==@type'))}")
-
-    print("\n \n \n")
-    return building_types
+def plotly_number_of_buildings(long_df: pd.DataFrame):
+    fig = px.bar(
+        data_frame=long_df,
+        x="building_type",
+        y="count",
+        color="city",
+        barmode="group"
+    )
+    fig.show()
 
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    # Leeuwarden
-    city_list = [MURCIA, KWIDZYN, LEEUWARDEN, BAARD, SUCINA, RUMIA]
-    building_type_list = []
-    for city in city_list:
-        b_types = show_number_of_buildings(city)
-        building_type_list.append(b_types)
 
-    large_list = []
-    for b_list in building_type_list:
-        large_list.extend(b_list)
-    final_types = set(large_list)
-    print(final_types)
+    city_list = [MURCIA, KWIDZYN, LEEUWARDEN, BAARD, SUCINA, RUMIA]
+    big_df = pd.DataFrame(columns=["building", "city"])
+    for city in city_list:
+        big_df = show_number_of_buildings(city, big_df)
+
+    counts = big_df.groupby("city")['building'].value_counts()
+    long_df = pd.DataFrame({'building_type': counts.index.get_level_values("building"),
+                           'city': counts.index.get_level_values("city"),
+                           'count': counts.values})
+    long_df["count"] = long_df["count"].astype(float)
+    plotly_number_of_buildings(long_df)
+
+
 
 
