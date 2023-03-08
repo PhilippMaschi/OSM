@@ -65,5 +65,16 @@ def show_number_of_buildings(city: dict):
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     # Leeuwarden
-show_number_of_buildings(MURCIA)
+    city_list = [MURCIA, KWIDZYN, LEEUWARDEN, BAARD, SUCINA, RUMIA]
+    building_type_list = []
+    for city in city_list:
+        b_types = show_number_of_buildings(city)
+        building_type_list.append(b_types)
+
+    large_list = []
+    for b_list in building_type_list:
+        large_list.extend(b_list)
+    final_types = set(large_list)
+    print(final_types)
+
 
