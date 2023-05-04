@@ -2,6 +2,7 @@ import osmapi
 import pandas as pd
 import osmnx as ox
 import geopandas as gpd
+from shapely.geometry import box
 import matplotlib.pyplot as plt
 import plotly.express as px
 
@@ -41,6 +42,25 @@ MURCIA = {"north": 37.9988137604873,
           "west": -1.13912542769010,
           "city_name": "Murcia"}
 
+TRANSLATION_DICT = {
+    "Almacenaje": "storage",
+    "Aparcamiento": "parking",
+    "Residencial": "residential",
+    "Público": "public",
+    "Piscinas": "swimming pool",
+    "EnseñanzaCultural": "cultural education",
+    "HoteleroRestauración": "hotel",
+    "IndustrialResto": "industrial site",
+    "OtrosNoCal": "other no cal",
+    "OtrosCal": "other cal",
+    "Industrial": "industrial",
+    "Comercial": "commercial",
+    "VincViv": "social housing",
+    "Deportivo": "sport",
+    "Común": "shared",
+    "Oficinas": "offices",
+}
+
 def show_place(north: float, south: float, east: float, west: float):
     G = ox.graph_from_bbox(north, south, east, west, network_type='all')
     # plot the network graph
@@ -58,6 +78,51 @@ def show_number_of_buildings(city: dict, big_df: pd.DataFrame):
     print(f"totoal number of buildings in {city['city_name']}: {len(buildings)} \n")
     return df
 
+
+def show_murcia_data():
+    murcia_df = gpd.read_file("30030.gpkg")
+    # create a Shapely box object from the bounding box coordinates
+    bbox = box(MURCIA["west"], MURCIA["south"], MURCIA["east"], MURCIA["north"])
+    filtered_gdf = murcia_df.cx[MURCIA["west"]: MURCIA["east"],  MURCIA["south"]: MURCIA["north"]].copy()
+    filtered_gdf["number_of_buildings"] = 1
+    filtered_gdf["uso_principal"] = filtered_gdf["uso_principal"].replace(TRANSLATION_DICT)
+    murcia_numbers = filtered_gdf.groupby("uso_principal")["number_of_buildings"].sum().reset_index()
+
+
+    # get OSM murcia data
+    osm_df = pd.DataFrame(columns=["building", "city"])
+    osm_df = show_number_of_buildings(MURCIA, osm_df)
+    osm_df["number_of_buildings"] = 1
+    osm_numbers = osm_df.groupby("building")["number_of_buildings"].sum().reset_index()
+
+
+    common_names = set(osm_df['building']).intersection(set(murcia_numbers['uso_principal']))
+
+    murcia = murcia_numbers.query(f"uso_principal in {list(common_names)}")
+    # define the percentage of the different buildings:
+    murcia["percentage"] = murcia["number_of_buildings"] / murcia["number_of_buildings"].sum()
+    murcia = murcia.reset_index(drop=True)
+
+    # add the buildings that are configured as "yes" to the number of buildings based on the percentage of murcia buildings
+    osm = osm_numbers.query(f"building in {list(common_names)}").reset_index(drop=True)
+    osm["number_of_buildings"] = osm["number_of_buildings"] + float(osm_numbers.query("building == 'yes'")["number_of_buildings"]) * murcia["percentage"]
+
+    murcia["source"] = "urban3r"
+    osm["source"] = "osm"
+    df = pd.concat([murcia.drop(columns=["percentage"]).rename(columns={"uso_principal": "building"}), osm], axis=0)
+
+    fig = px.bar(
+        data_frame=df,
+        x="building",
+        y="number_of_buildings",
+        color="source",
+        barmode="group",
+    )
+    fig.show()
+
+
+
+
 def plotly_number_of_buildings(long_df: pd.DataFrame):
     fig = px.bar(
         data_frame=long_df,
@@ -71,6 +136,7 @@ def plotly_number_of_buildings(long_df: pd.DataFrame):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+    show_murcia_data()
 
     city_list = [MURCIA, KWIDZYN, LEEUWARDEN, BAARD, SUCINA, RUMIA]
     big_df = pd.DataFrame(columns=["building", "city"])
