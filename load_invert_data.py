@@ -195,11 +195,11 @@ def calculate_mean_supply_temperature(grouped_df: pd.DataFrame,
     return mean_sup_temp
 
 
-def calculate_mean(grouped: pd.DataFrame, names: list, heating_system_name: str):
-    if grouped[heating_system_name].sum() == 0:  # create nan row so it can be easily dropped later
+def calculate_mean(grouped: pd.DataFrame, names: list, number_of_buildings: str):
+    if grouped[number_of_buildings].sum() == 0:  # create nan row so it can be easily dropped later
         new_row = pd.Series(data=[np.nan] * len(grouped[names].columns), index=grouped[names].columns)
     else:
-        weights = grouped[heating_system_name] / grouped[heating_system_name].sum()
+        weights = grouped[number_of_buildings] / grouped[number_of_buildings].sum()
         new_row = (grouped[names].T * weights).T.sum()
     return new_row
 
@@ -210,20 +210,23 @@ def create_representative_building(group: pd.DataFrame,
                                    adding_names: list) -> pd.DataFrame:
     new_row = pd.DataFrame(columns=group.columns, index=[0])
     # representative air source HP building
-    new_row.loc[0, merging_names] = calculate_mean(group, names=merging_names, heating_system_name=column_name_with_numbers)
+    new_row.loc[0, merging_names] = calculate_mean(group,
+                                                   names=merging_names,
+                                                   number_of_buildings=column_name_with_numbers)
     new_row.loc[0, adding_names] = group.loc[:, adding_names].sum()
 
-    new_row.loc[0, "supply_temperature"] = calculate_mean_supply_temperature(
-        group,
-        heating_system_name=column_name_with_numbers
-    )
     # new name is first 5 letters of first name + heating system
-    heating_system = column_name_with_numbers.split("_")[-1]
-    new_row["construction_period_start"] = group["construction_period_start"].unique()
-    new_row["construction_period_end"] = group["construction_period_end"].unique()[0]
-    new_row.loc[0, "name"] = f"{str(group.loc[:, 'name'].iloc[0][0:5])[2:]}_{heating_system}"
+    new_row.loc[0, "heating_medium"] = group.loc[:, "heating_medium"].values[-1]
+    new_row["construction_period_start"] = group["construction_period_start"].values[-1]
+    new_row["construction_period_end"] = group["construction_period_end"].values[-1]
+    new_row.loc[0, "name"] = f"{str(group.loc[:, 'name'].iloc[0])}"
     new_row.loc[0, "index"] = group.loc[:, "index"].iloc[0]  # new index is the first index of merged rows
     return new_row
+
+
+def filter_only_sevilla_buildings(df: pd.DataFrame):
+    mask = df["name"].astype(str).isin([name for name in df["name"].astype(str) if "Sevilla" in name])
+    return df.loc[mask, :]
 
 
 def get_number_of_buildings_from_invert() -> pd.DataFrame:
@@ -237,36 +240,45 @@ def get_number_of_buildings_from_invert() -> pd.DataFrame:
     bssh = bssh_df.apply(to_series)
     bc = bc_df.apply(to_series)
     bc["building_categories_index"] = bc["building_categories_index"].astype(int)
+    # use only Sevilla buildings!
+    bc = filter_only_sevilla_buildings(bc)
+    bssh = filter_only_sevilla_buildings(bssh)
+
+    # columns where numbers are summed up (PV and number of buildings)
+    adding_names = [name for name in bc.columns if "number" in name] + ["number_of_buildings"]
+    # columns to merge: [2:] so index and name are left out
+    merging_names = [
+                        name for name in bc.columns if "PV" and "number" not in name and "construction" not in name
+                    ][2:] + adding_names[:3]
+    # except number of persons and number of dwellings ([3:]) left out
+    adding_names = adding_names[3:]
 
     # Group the rows of bssh_df by building_classes_index
     bssh_grouped = bssh.groupby(["building_classes_index", "heat_supply_system_index"])
-
+    new_bc = pd.DataFrame()
     for (index, heat_system), group in bssh_grouped:
-        # add total number of buildings:
-        total_number_buildings = group["number_of_buildings"].sum()
-        bc.loc[bc.loc[:, "index"] == index, "number_of_buildings"] = total_number_buildings
-        bc.loc[bc.loc[:, "index"] == index, "heating_medium"] = HEATING_SYSTEM_INDEX[heat_system]
+        # reset the index to the invert index:
+        group = group.set_index("index")
+        bc_group = bc.loc[bc.loc[:, "index"].isin(list(group.index)), :]
+        # check if bc_group is an empty frame and continue if so
+        if bc_group.shape[0] == 0:
+            continue
+        bc_group.loc[:, "number_of_buildings"] = bc_group.loc[:, "index"].map(group.loc[:, "number_of_buildings"])
+        bc_group.loc[:, "heating_medium"] = HEATING_SYSTEM_INDEX[heat_system]
 
-    # # columns where numbers are summed up (PV and number of buildings)
-    # adding_names = [name for name in bc.columns if "number" in name]
-    # # columns to merge: [2:] so index and name are left out
-    # merging_names = [
-    #                     name for name in bc.columns if "PV" and "number" not in name and "construction" not in name
-    #                 ][2:] + adding_names[:3]
-    # # except number of persons and number of dwellings ([3:]) left out
-    # adding_names = adding_names[3:]
-    #
-    # # group the heating mediums together
-    # final_df = pd.DataFrame()
-    # bc_group = bc.groupby("heating_medium")
-    # for heating_medium, group in bc_group:
-    #     new_building = create_representative_building(group=group,
-    #                                                   column_name_with_numbers="number_of_buildings",
-    #                                                   merging_names=merging_names,
-    #                                                   adding_names=adding_names)
+        new_building = create_representative_building(group=bc_group,
+                                                      column_name_with_numbers="number_of_buildings",
+                                                      merging_names=merging_names,
+                                                      adding_names=adding_names)
 
-    return bc
+        new_bc = pd.concat([new_bc, new_building], axis=0)
+
+    # drop nan rows because the number of buildings is 0
+    final_df = new_bc.dropna(axis=0).reset_index(drop=True)
+    return final_df
+
 
 
 if __name__ == "__main__":
     get_number_of_buildings_from_invert()
+
