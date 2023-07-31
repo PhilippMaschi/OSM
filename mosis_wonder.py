@@ -6,8 +6,6 @@ from shapely.geometry import shape
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
 from pathlib import Path
-from shapely.geometry import MultiLineString, LineString
-import itertools
 
 
 
@@ -33,6 +31,8 @@ def calc_premeter(input_lyr, output_lyr, positive_buffer: float, negative_buffer
     buffer_union = unary_union(boundary_buffer_union)
     # Now, calculate the perimeter of the union of buffers (positive and negative combined)
     premeter = []
+    # also calculate the total curcumference of each object:
+    circumference = []
     # use Sort-Tile-Recursive for spatial query
     tree = STRtree(buffer_union.geoms)
 
@@ -43,6 +43,13 @@ def calc_premeter(input_lyr, output_lyr, positive_buffer: float, negative_buffer
         intersecting_geometries = [buffer_union.geoms[index] for index in tree_query]
         # create unary union from the intersecting geometries
         buffer_union_query = unary_union(intersecting_geometries)
+        # calculate circumference:
+        # if buffer_union_query.geom_type == "LineString":
+        circumference.append(item.length)
+        # elif buffer_union_query.geom_type == "MultiLineString":
+        #     circumference.append([number for number in [l.length for l in buffer_union_query.geoms]])
+        # else:
+        #     print(f"check item number {i}")
         # create temporary segment of the intersections to save time
         temp_segment = item.intersection(buffer_union_query)
         accumulator = 0
@@ -56,7 +63,8 @@ def calc_premeter(input_lyr, output_lyr, positive_buffer: float, negative_buffer
 
 
     gdf = gpd.read_file(input_lyr)
-    gdf['exPremeter'] = np.array(premeter)
+    gdf['adjanted length (m)'] = np.array(premeter)
+    gdf['circumference (m)'] = np.array(circumference)
     gdf.to_file(output_lyr)
     gdf = None
     # calculate deviation
