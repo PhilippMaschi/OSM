@@ -17,11 +17,11 @@ def calc_premeter(input_lyr: Path,
     :param output_lyr: path to where output file should be saved (.shp)
     :param positive_buffer: used to calculate the areas where buildings touch
     :param negative_buffer: absolute value should be greater than positive buffer
-    :return: geopandas dataframe from the input layer with two additional rows describing the adjacent length
+    :return: geopandas dataframe from the input layer with two additional rows describing the free (not adjacent) length
                 and the circumference (both in m)
 
     """
-    print(f"calculating adjacent length of each building and circumference...")
+    print(f"calculating free length of each building and circumference...")
     st = time.time()
     if positive_buffer + negative_buffer >= 0:
         print("Absolut value of the negative buffer should be greater than the positive buffer")
@@ -75,7 +75,7 @@ def calc_premeter(input_lyr: Path,
 
 
     gdf = gpd.read_file(input_lyr)
-    gdf['adjacent length (m)'] = np.array(premeter)
+    gdf['free length (m)'] = np.array(premeter)
     gdf['circumference (m)'] = np.array(circumference)
     gdf.to_file(output_lyr)
 
@@ -93,7 +93,7 @@ def calc_premeter(input_lyr: Path,
     '''
     print("Deviation from approximate premeter: %0.2f%% " % approx_dev_percent)
     print("Elapsed time: %0.2f" % elapsed)
-    print("adjacent length and circumference added to gdf")
+    print("free length and circumference added to gdf")
     return gdf
 
 if __name__ == "__main__":

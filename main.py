@@ -441,22 +441,34 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame):
     return final_df
 
 
+def get_parameters_from_dynamic_calc_data(df: pd.DataFrame) -> pd.DataFrame:
+    # load dynamic calc data
+    dynamic_calc = pd.read_csv("dynamic_calc_data_bc_2020_Spain.csv", sep=";")
+    # map the CM_Factor and the Am_factor to the df through the bc_index:
+    df = df.rename(columns={"index": "bc_index"})
+    merged_df = df.merge(
+        dynamic_calc.loc[:, ["bc_index", "CM_factor", "Am_factor"]],
+        on="bc_index",
+        how="inner"
+    )
+    return merged_df
+
 def calculate_5R1C_necessary_parameters(df):
     # number of floors
     df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
     # height of the building
     df.loc[:, "height"] = (df.loc[:, "room_height"] + 0.3) * df.loc[:, "floors"]
     # adjacent area
-    df.loc[:, "adjacent area (m2)"] = df.loc[:, "adjacent length (m)"] * df.loc[:, "height"]
+    df.loc[:, "free wall area (m2)"] = df.loc[:, "free length (m)"] * df.loc[:, "height"]
     # not adjacent area
-    df.loc[:, "free wall area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "adjacent length (m)"]) * \
+    df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "free length (m)"]) * \
                                       df.loc[:, "height"]
     # total wall area
     df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
     # ration of adjacent to not adjacent (to compare it to invert later)
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
-    return df
-
+    df_return = get_parameters_from_dynamic_calc_data(df)
+    return df_return
 
 
 def plot_heating_medium_distribution(gdf: gpd.GeoDataFrame):
@@ -484,7 +496,7 @@ if __name__ == '__main__':
     # calculate all necessary parameters for the 5R1C model:
     final_df = calculate_5R1C_necessary_parameters(numeric_df)
     # create the dataframe with 5R1C parameters
-    Create5R1CParameters(df=numeric_df).main()
+    Create5R1CParameters(df=final_df).main()
 
     # check if the random selection from invert results in a similar distribution in the combined df:
     plot_heating_medium_distribution(numeric_df)
