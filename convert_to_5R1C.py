@@ -67,7 +67,7 @@ class Create5R1CParameters:
         self.height = self.df.loc[:, "height"]
         self.roof_area = self.df.loc[:, "area"]  # mostly flat roofs in Murcia
 
-        self.volume = self.df.loc[:, "building_volume"] * 0.7  # 30% des gesamtvolumens werden nicht geheizt
+        self.volume = self.foot_print * self.height * 0.7  # 30% des gesamtvolumens werden nicht geheizt
 
         self.u_wall = self.df.loc[:, "u_value_exterior_walls"]
         self.u_window = self.df.loc[:, "u_value_windows1"]
@@ -77,10 +77,6 @@ class Create5R1CParameters:
         self.Af = self.df.loc[:, "area"] * self.floors * 0.8  # 20 % der gesamtfläche sind nicht beheizt
         self.Cm_factor = self.df["CM_factor"]
         self.Am_factor = self.df["Am_factor"]
-
-        # because i dont calculate the heat transfer to adjanted buildings I will remove the area of adjanted walls
-        # from the total wall area to reduce heat losses
-        self.area_to_adjacent_building = self.df.loc[:, "adjacent area (m2)"]
         self.wall_outside_area = self.df.loc[:, "free wall area (m2)"]
 
         # walls are equally oriented
@@ -126,7 +122,10 @@ class Create5R1CParameters:
         km_ground = (self.Cm_ground / self.foot_print) * (self.Cm_ground / self.foot_print)
         km_inner_wall = (self.Cm_inner_walls / self.area_inner_walls) * (self.Cm_inner_walls / self.area_inner_walls)
 
-        return Cm2 / (km_wall * self.wall_outside_area + km_ground * self.foot_print + km_ceiling * self.roof_area + km_inner_wall * self.area_inner_walls)
+        return Cm2 / (km_wall * self.wall_outside_area +
+                      km_ground * self.foot_print +
+                      km_ceiling * self.roof_area +
+                      km_inner_wall * self.area_inner_walls)
 
     def calculate_HD(self):
         """heat transfer to external environment"""
@@ -169,11 +168,13 @@ class Create5R1CParameters:
         Hg, HU, HA and HD"""
         Hg = self.calculate_Hg()
         HU = self.calculate_HU(0, 1, 0, 1)  # buildings do not have unconditioned rooms
+        # buildings are stand-alone (no adjacent area) as we assume that neighboring buildings have nearly the same
+        # indoor temperature
         HA = self.calculate_HA(area_to_adjacent_building=0,
                                u_value_to_adjacent_building=1,
                                inside_temperature=0,
                                inside_temperature_adjacent_building=0,
-                               outside_temperature=0)  # buildings are stand-alone (no adjacent area)
+                               outside_temperature=0)
         HD = self.calculate_HD()
         return Hg + HU + HA + HD
 
@@ -205,7 +206,7 @@ class Create5R1CParameters:
         self.building_df.loc[:, "CM_factor"] = self.Cm_factor
         self.building_df.loc[:, "Am_factor"] = self.Am_factor
         self.building_df.loc[:, "internal_gains"] = self.internal_gains
-        window_g_value = 0.5  # ANnahme! G werte von daniel waren zwscihen 0.5 und 0.6
+        window_g_value = 0.5  # Annahme! G werte von daniel waren zwischen 0.5 und 0.6
         self.building_df.loc[:, "effective_window_area_west_east"] = (self.window_area_east * window_g_value +
                                                                       self.window_area_west * window_g_value)
         self.building_df.loc[:, "effective_window_area_south"] = self.window_area_south * window_g_value
@@ -216,6 +217,8 @@ class Create5R1CParameters:
 
         self.fill_building_df()
         self.building_df.to_excel(Path("5R1C_buildings.xlsx"), index=False)
+        self.df.loc[:, "ID Building"] = np.arange(1, self.df.shape[0]+1)
+        self.df.to_excel(Path("combined_building_dfs.xlsx"))
 
 
 if __name__ == "__main__":
