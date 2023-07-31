@@ -72,6 +72,7 @@ class Create5R1CParameters:
         self.u_wall = self.df.loc[:, "u_value_exterior_walls"]
         self.u_window = self.df.loc[:, "u_value_windows1"]
         self.u_floor = self.df.loc[:, "u_value_floor"]
+        self.u_roof = self.df.loc[:, "u_value_roof"]
         self.n_air = self.df.loc[:, "n_50"]
         self.internal_gains = self.df.loc[:, "spec_int_gains_cool_watt"]
         self.Af = self.df.loc[:, "area"] * self.floors * 0.8  # 20 % der gesamtfläche sind nicht beheizt
