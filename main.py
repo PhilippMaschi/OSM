@@ -232,46 +232,6 @@ def compare_urban3r_invert():
     compare_norm_heating_demand(filtered_gdf, invert_df=load_invert_spain_data())
 
 
-def select_invert_representatives_for_murcia_buildings() -> pd.DataFrame:
-    """
-    selecting the invert building that represents each building in the urban3r dataset to obtain U-values etc.
-    :return:
-    """
-    # murcia data from URBAN3R
-    murcia_df = load_urban3r_murcia()
-    filtered_gdf = murcia_df.drop(columns=["geometry"])
-
-    # Invert data
-    df_invert = load_invert_spain_data()
-    df_invert_residential = df_invert.query("building_categories_index == 1")
-    # load dynamic data
-    dynamic_data = pd.read_csv(r"C:\Users\mascherbauer\PycharmProjects\OSM\dynamic_calc_data_bc_2020_Spain.csv",
-                               sep=";")
-    # create a new df that includes the invert data combined with urban3r
-    new_df = pd.DataFrame()
-    for i, row in filtered_gdf.iterrows():
-        heat_demand = row["demanda_calefaccion"]
-        if np.isnan(heat_demand):
-            continue
-        # compare this heat demand with the invert buildings and select properties with closest heat demand
-        diff = (df_invert_residential["hwb_norm"] - heat_demand).abs()
-        index = diff.idxmin()
-        invert_row = df_invert_residential.loc[index, :]
-        # dynamic_data row
-        dynamic_row = dynamic_data.query("index == @index")[["CM_factor", "Am_factor", "spec_int_gains_cool_watt"]]
-        new_row = pd.DataFrame(pd.concat(
-            [
-                pd.DataFrame(row).T.reset_index(drop=True),
-                pd.DataFrame(invert_row).T.reset_index(drop=True),
-                dynamic_row.reset_index(drop=True)
-            ],
-            axis=1,
-        ))
-        new_df = pd.concat([new_df, new_row], axis=0)
-
-    return new_df
-
-
 def show_murcia_data():
     murcia_df = gpd.read_file("30030.gpkg")
     # create a Shapely box object from the bounding box coordinates
@@ -529,7 +489,6 @@ if __name__ == '__main__':
     # check if the random selection from invert results in a similar distribution in the combined df:
     plot_heating_medium_distribution(numeric_df)
 
-    select_invert_representatives_for_murcia_buildings()
     # compare_urban3r_invert()
     # show_murcia_data()
     #
