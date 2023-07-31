@@ -75,7 +75,7 @@ def calc_premeter(input_lyr: Path,
 
 
     gdf = gpd.read_file(input_lyr)
-    gdf['adjanted length (m)'] = np.array(premeter)
+    gdf['adjacent length (m)'] = np.array(premeter)
     gdf['circumference (m)'] = np.array(circumference)
     gdf.to_file(output_lyr)
 
