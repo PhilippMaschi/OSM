@@ -49,7 +49,8 @@ BUILDING_CLASS_COLUMNS = {
     "average_effective_area_wind_south_red_cool": "float32",
     "average_effective_area_wind_north_red_cool": "float32",
     "spec_int_gains_cool_watt": "float32",
-    "attached_surface_area": "float32"
+    "attached_surface_area": "float32",
+    "n_50": "float32",
 }
 
 BUILDING_SEGMENT_COLUMNS = {
