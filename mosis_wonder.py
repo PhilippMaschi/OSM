@@ -8,8 +8,20 @@ from shapely.strtree import STRtree
 from pathlib import Path
 
 
+def calc_premeter(input_lyr: Path,
+                  output_lyr: Path,
+                  positive_buffer: float = 0.1,
+                  negative_buffer: float = -0.11):
+    """
+    :param input_lyr: path to .shp file
+    :param output_lyr: path to where output file should be saved (.shp)
+    :param positive_buffer: used to calculate the areas where buildings touch
+    :param negative_buffer: absolute value should be greater than positive buffer
+    :return: geopandas dataframe from the input layer with two additional rows describing the adjacent length
+                and the circumference (both in m)
 
-def calc_premeter(input_lyr, output_lyr, positive_buffer: float, negative_buffer: float):
+    """
+    print(f"calculating adjacent length of each building and circumference...")
     st = time.time()
     if positive_buffer + negative_buffer >= 0:
         print("Absolut value of the negative buffer should be greater than the positive buffer")
@@ -66,7 +78,7 @@ def calc_premeter(input_lyr, output_lyr, positive_buffer: float, negative_buffer
     gdf['adjanted length (m)'] = np.array(premeter)
     gdf['circumference (m)'] = np.array(circumference)
     gdf.to_file(output_lyr)
-    gdf = None
+
     # calculate deviation
     approx_extern_premeter = sum([elem.length for elem in buffer_union.geoms])
     returned_premeter = sum(premeter)
@@ -81,7 +93,8 @@ def calc_premeter(input_lyr, output_lyr, positive_buffer: float, negative_buffer
     '''
     print("Deviation from approximate premeter: %0.2f%% " % approx_dev_percent)
     print("Elapsed time: %0.2f" % elapsed)
-
+    print("adjacent length and circumference added to gdf")
+    return gdf
 
 if __name__ == "__main__":
     path = Path(r'C:\Users\mascherbauer\PycharmProjects\OSM')
