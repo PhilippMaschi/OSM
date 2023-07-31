@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.random
 import osmapi
 import osmnx as ox
 import pandas as pd
@@ -7,6 +8,15 @@ import geopandas as gpd
 from shapely.geometry import box
 import matplotlib.pyplot as plt
 import plotly.express as px
+from pathlib import Path
+import h5py
+from load_invert_data import get_number_of_buildings_from_invert
+from mosis_wonder import calc_premeter
+from convert_to_5R1C import Create5R1CParameters
+import warnings
+
+# Suppress the FutureWarning
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 LEEUWARDEN = {"north": 53.2178674080337,
               "south": 53.1932515262881,
@@ -64,17 +74,28 @@ TRANSLATION_DICT = {
 }
 
 BUILDING_FILTER = [
-    "hotel",
-    "other no cal",
-    "other cal",
-    "commercial",
+    # "hotel",
+    # "other no cal",
+    # "other cal",
+    # "commercial",
     "social housing",
-    "shared",
-    "offices",
+    # "shared",
+    # "offices",
     "residential",
-    "public",
-    "cultural education"
+    # "public",
+    # "cultural education"
 ]
+
+USO_PRINCIPAL_TO_INVERT_TYPE = {
+    # "hotel": "Hotel & restaurants",
+    # "commercial": "Wholesale",
+    "social housing": "MFH",
+    "shared": "",
+    "offices": "Private offices",
+    "residential": ["SFH", "MFH"],
+    "public": "Public",
+    "cultural education": "Education"
+}
 
 
 def show_place(north: float, south: float, east: float, west: float):
@@ -104,12 +125,15 @@ def load_invert_spain_data():
     df = pd.read_csv(r"C:\Users\mascherbauer\PycharmProjects\OSM\Building_Classes_2020_Spain.csv", sep=";")
     return df
 
+
 def get_urban3r_murcia_gdf():
     murcia_df = gpd.read_file("30030.gpkg")
     df = murcia_df.cx[MURCIA["west"]: MURCIA["east"], MURCIA["south"]: MURCIA["north"]].copy()
     df["number_of_buildings"] = 1
+    print(f"URBAN3R buildings in database total: {df['number_of_buildings'].sum()}")
     df["uso_principal"] = df["uso_principal"].replace(TRANSLATION_DICT)
     filtered_gdf = df[df["uso_principal"].isin(BUILDING_FILTER)]
+    print(f"URBAN3R buildings in database after filtering: {filtered_gdf['number_of_buildings'].sum()}")
     gdf = filtered_gdf.to_crs("epsg:3035")
     return gdf
 
@@ -129,8 +153,8 @@ def load_urban3r_murcia() -> gpd.GeoDataFrame:
     gdf['length'] = gdf.length
     gdf['width'] = gdf['building_footprint'] / gdf['length']
     gdf["surface area"] = 2 * gdf['length'] * gdf["building_height"] + \
-                                   2 * gdf['width'] * gdf["building_height"] + \
-                                   gdf["building_footprint"]  # as roof area aprox.
+                          2 * gdf['width'] * gdf["building_height"] + \
+                          gdf["building_footprint"]  # as roof area aprox.
     gdf["volume surface ratio"] = gdf["building_volume"] / gdf["surface area"]
     return gdf
 
@@ -140,8 +164,6 @@ def compare_footprints(df, df_invert, osm):
     building_areas = gdf.area
     df["area"] = building_areas
 
-
-
     df_invert["area"] = df_invert["length_of_building"] * df_invert["width_of_building"]
 
     df_invert_residential = df_invert.query("building_categories_index == 1")
@@ -149,7 +171,8 @@ def compare_footprints(df, df_invert, osm):
 
     fig = plt.figure()
     ax = plt.gca()
-    ax.boxplot([df_residential["area"], df_invert_residential["area"], osm["area"]], labels=["urban3R", "Invert", "OSM"])
+    ax.boxplot([df_residential["area"], df_invert_residential["area"], osm["area"]],
+               labels=["urban3R", "Invert", "OSM"])
     ax.set_ylabel("footprint (m2)")
     plt.savefig("figures/footprint_comparison_uerban3R-invert_Murcia.png")
     plt.show()
@@ -199,9 +222,9 @@ def compare_norm_heating_demand(urban3r_df, invert_df):
 def compare_urban3r_invert():
     filtered_gdf = load_urban3r_murcia()
     osm = get_osm_gdf(MURCIA)
-    osm_gdf = osm.to_crs("epsg:3035").copy()   #4326, 3035, 32632
+    osm_gdf = osm.to_crs("epsg:3035").copy()  # 4326, 3035, 32632
     osm["area"] = osm_gdf.area
-    #todo for osm the building height still has to be included
+    # todo for osm the building height still has to be included
 
     compare_footprints(filtered_gdf, df_invert=load_invert_spain_data(), osm=osm)
     compare_gross_volume(filtered_gdf, invert_df=load_invert_spain_data(), osm=osm)
@@ -246,10 +269,7 @@ def select_invert_representatives_for_murcia_buildings() -> pd.DataFrame:
         ))
         new_df = pd.concat([new_df, new_row], axis=0)
 
-
     return new_df
-
-
 
 
 def show_murcia_data():
@@ -303,67 +323,211 @@ def plotly_number_of_buildings(long_df: pd.DataFrame):
     fig.show()
 
 
-def merge_osm_urban3r():
+def merge_osm_urban3r(output_filename: Path) -> None:
     urban3r = get_urban3r_murcia_gdf()
-    urban3r["id"] = np.arange(urban3r.shape[0])
+    urban3r["id_urban3r"] = np.arange(urban3r.shape[0])
     urban3r.to_file("urban3r_murcia.shp", driver="ESRI Shapefile")
     osm = get_osm_gdf(MURCIA)
     osm_gdf = osm.to_crs("epsg:3035").copy()
-    osm_gdf["id"] = np.arange(osm_gdf.shape[0])
+    osm_gdf["id_osm"] = np.arange(osm_gdf.shape[0])
     # spalten mit listen löschen und dann löschen
     osm_gdf = osm_gdf.drop(columns=["nodes"])
-    osm_gdf.to_file("osm_murcia.shp", driver="ESRI Shapefile")
+    # osm_gdf.to_file("osm_murcia.shp", driver="ESRI Shapefile")
 
-    # Perform the spatial join using the overlay() function
-    # spatial join - sjoin
-    # centroid von urban3r der polygone berechnen und dann mit sjoin verbinden
-    osm_gdf["help_geometry"] = osm_gdf["geometry"]
-    osm_gdf["geometry"] = osm_gdf.representative_point()
-    new_merge = gpd.sjoin(urban3r, osm_gdf, how='inner', op='contains')
+    # take the representative points from OSM and check how many of them are inside the shapes of urban3r
+    osm_help = osm_gdf.copy()
+    osm_help["help_geometry"] = osm_help["geometry"]
+    osm_help["geometry"] = osm_help.representative_point()
+    merged = gpd.sjoin(urban3r, osm_help, how='inner', op='contains')
+    merged_urban3r_geom = merged.drop(columns=["help_geometry", "ways"])
+    # merged_urban3r_geom.to_file("merged_urban_geom.shp", driver="ESRI Shapefile")
 
-    new_merge_1 = new_merge.drop(columns=["help_geometry", "ways"])
-    new_merge_2 = new_merge.drop(columns=["geometry", "ways"]).rename(columns={"help_geometry": "geometry"})
-    new_merge_2 = new_merge_2[new_merge_2.geometry.type.isin(["Polygon"])]
-    new_merge_1.to_file("merged_vielleicht_urban.shp", driver="ESRI Shapefile")
-    new_merge_2.to_file("merged_vielleicht_osm.shp", driver="ESRI Shapefile")
+    # take the same dataset and use the osm geometry:
+    merged_osm_geom = merged.drop(columns=["geometry", "ways"]).rename(columns={"help_geometry": "geometry"})
+    merged_osm_geom = merged_osm_geom[merged_osm_geom.geometry.type.isin(["Polygon"])]
+    merged_osm_geom.to_file(output_filename, driver="ESRI Shapefile")
+    print(f"OSM number of buildings total: {osm_gdf.shape[0]}")
+    print(f"OSM building number after merging: {merged_osm_geom.shape[0]}")
+
+    # in most cases the osm representation of the building shape is more accurate but in some cases
+    # only exception are row houses that are divided in Urban3r but are a single building in OSM
+    # I don't correct this mistake because the row houses have aprox the same heating demand and are built in the same
+    # century
+    return None
+
+
+def replace_nan_with_distribution(gdf: pd.DataFrame, column_name: str) -> gpd.GeoDataFrame:
+    """
+    for buildings where there are nan in a column we take the distribution from the
+    buildings where we know it:
+    """
+    help_series = gdf.loc[:, column_name]
+    distribution = help_series.dropna().value_counts(normalize=True)
+    missing = help_series.isnull()
+    gdf.loc[missing, column_name] = np.random.choice(distribution.index,
+                                                     size=len(missing),
+                                                     p=distribution.values)
+    columns_with_different_lengths = [col for col in gdf.columns if len(gdf[col]) != len(gdf[gdf.columns[0]])]
+    return gdf.reset_index(drop=True)
+
+
+def find_construction_period(construction_periods, cell) -> str:
+    check = False
+    for period in construction_periods:
+        if int(period.split("-")[0]) <= cell <= int(period.split("-")[1]):
+            check = True
+            # print(f"{cell} is between {period.split('-')[0]} and {period.split('-')[1]}")
+            break
+    if not check:
+        period = "2002-2008"
+        print(f"{cell} is in no period! {period} is chosen instead")
+    return period
+
+
+def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.DataFrame:
+    # filter the invert data based on the uso_principal
+    if type == "hotel":
+        # filter invert data after Sevilla:
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "Hotel & restaurants" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "commercial":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "Wholesale" in name or "Other" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "social housing":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "MFH" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "shared":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "MFH" in name or "SFH" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "offices":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "Private offices" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "residential":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "MFH" in name or "SFH" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "public":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "Public" in name])
+        selection = invert_df.loc[mask, :]
+    elif type == "cultural education":
+        mask = invert_df["name"].isin([name for name in invert_df["name"] if "Education" in name])
+        selection = invert_df.loc[mask, :]
+    else:
+        print(f"uso principal not defined in the code: {type}")
+        return None
+    return selection
+
+
+def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame):
+    # load invert table for Sevilla buildings
+    df_invert = get_number_of_buildings_from_invert()
+
+    df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
+                                              df_invert.loc[:, "construction_period_end"].astype(str)
+    # drop the rows where buildings are built between 1900-1980 etc.
+    df_invert = df_invert.loc[df_invert.loc[:, "construction_period"] != "1900-1980", :]
+    df_invert = df_invert.loc[df_invert.loc[:, "construction_period"] != "2007-2008", :]
+    # group invert data after construction period:
+    construction_periods = list(df_invert.loc[:, "construction_period"].unique())
+    gdf = gdf.dropna(axis=1)
+    # calculate the ground area
+    gdf["area"] = gdf.area
+    # for each building in the gdf extract the type (SFH or MFH or something else) and the year of construction
+    types = gdf["uso_princi"].unique()
+    print(types)
+    type_groups = gdf.groupby("uso_princi")
+    complete_df = pd.DataFrame()
+    for type, group in type_groups:
+        # add construction year to the buildings that don't have one
+        # group["ano_construccion"] = replace_nan_with_distribution(group, "ano_construccion")
+        group["ano_constr"] = group["ano_constr"].astype(int)
+        # add the number of stories of the building if not known
+        # group["altura_maxima"] = replace_nan_with_distribution(group, "altura_maxima")
+
+        # select a building type from invert based on the construction year and type
+        group["invert_construction_period"] = group["ano_constr"].apply(
+            lambda x: find_construction_period(construction_periods, x)
+        )
+        # invert_selection = filter_invert_data_after_type(type=type, invert_df=df_invert)  # does not work for residential (i have a mistake)
+
+        # now select a representative building from invert for each building from Urban3r:
+        for i, row in group.iterrows():
+            close_selection = df_invert.loc[
+                              df_invert["construction_period"] == row['invert_construction_period'], :
+                              ]
+            # distinguish between SFH and MFH
+            if row["tipologia_"] == "Unifamiliar":
+                sfh_or_mfh = "SFH"
+            else:
+                sfh_or_mfh = "MFH"
+            mask = close_selection["name"].isin([name for name in close_selection["name"] if sfh_or_mfh in name])
+            type_selection = close_selection.loc[mask, :]
+            if type_selection.shape[0] == 0:  # if only SFH or MFH available from invert take this data instead
+                type_selection = close_selection
+            # now get select the building after the probability based on the distribution of the number of buildings
+            # in invert:
+            distribution = type_selection["number_of_buildings"].astype(float) / \
+                           type_selection["number_of_buildings"].astype(float).sum()
+            # draw one sample from the distribution
+            random_draw = np.random.choice(distribution.index, size=1, p=distribution.values)[0]
+            selected_building = type_selection.loc[random_draw, :]
+            # delete number of buildings because this number is 1 for a single building
+            complete_df = pd.concat([
+                complete_df,
+                pd.DataFrame(pd.concat([selected_building, row.drop(columns=["number_of_buildings"])], axis=0)).T
+            ], axis=0
+            )
+
+    final_df = complete_df.reset_index(drop=True)
+    return final_df
+
+
+def calculate_5R1C_necessary_parameters(df):
+    # number of floors
+    df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
+    # height of the building
+    df.loc[:, "height"] = (df.loc[:, "room_height"] + 0.3) * df.loc[:, "floors"]
+    # adjacent area
+    df.loc[:, "adjacent area (m2)"] = df.loc[:, "adjacent length (m)"] * df.loc[:, "height"]
+    # not adjacent area
+    df.loc[:, "free wall area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "adjacent length (m)"]) * \
+                                      df.loc[:, "height"]
+    # total wall area
+    df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
+    # ration of adjacent to not adjacent (to compare it to invert later)
+    df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
+    return df
 
 
 
-    merged_df = gpd.sjoin(osm_gdf.representative_point().to_frame(), urban3r,  how='right', op='within')
+def plot_heating_medium_distribution(gdf: gpd.GeoDataFrame):
+    fig = px.bar(numeric_df, x="construction_period_start", y="number_of_buildings")
+    fig.show()
 
-    # this merge gives a df with all the points of urban3r buildings in osm buildings:
-    merged_df_2 = gpd.sjoin(urban3r.representative_point().to_frame(), osm_gdf,  how='left', op='within')
-    merged_df_3 = gpd.sjoin(urban3r.representative_point().to_frame(), osm_gdf,  how='right', op='within')
-    # from the ids select the corresponding rows from the original urban3r df:
-    new_osm = osm_gdf.query(f"id in {list(merged_df_3['id'].dropna())}")
-    new_urban3r = urban3r.query(f"id in {list(merged_df_2['id'].dropna())}")
-    # create a new merged dataframe with the geometry from new osm and the data from new_urban3r
 
-    new_urban3r.to_file("new.shp", driver="ESRI Shapefile")
+def convert_to_float(column):
+    return pd.to_numeric(column, errors="ignore")
 
-    merged_df_2["id"].value_counts()
-    merged_df_2.to_file("merged_osm_geometry.shp", driver="ESRI Shapefile")
-    # Merge df1 and df2 on the index
-    cleaned = merged_df.dropna(subset=["index_left"])
 
-    (merged_df.query("id == 5394").area.values +
-        merged_df.query("id == 5371").area.values +
-        merged_df.query("id == 5395").area.values +
-        merged_df.query("id == 5396").area.values +
-        merged_df.query("id == 5397").area.values +
-        merged_df.query("id == 167").area.values)
-
-    osm_gdf.query("id == 2655").area
-    merged_df.query("id == 2655").area
-    urban3r.query("id == 2655").area
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    merge_osm_urban3r()
+    shp_filename = Path("merged_osm_geom.shp")
+    extended_shp_filename = Path("merged_osm_geom_extended.shp")
+    # merge the dataframes and safe the shapefile to shp_filename:
+    merge_osm_urban3r(output_filename=shp_filename)
+    # add the adjacent length and circumference
+    big_df = calc_premeter(input_lyr=shp_filename,
+                           output_lyr=extended_shp_filename, )
+    # combine the Urban3R information with the Invert database
+    combined_df = add_invert_data_to_gdf_table(big_df)
+    # turn them to numeric
+    numeric_df = combined_df.apply(convert_to_float)
+    # calculate all necessary parameters for the 5R1C model:
+    final_df = calculate_5R1C_necessary_parameters(numeric_df)
+    # create the dataframe with 5R1C parameters
+    Create5R1CParameters(df=numeric_df).main()
 
-
-
-
-
+    # check if the random selection from invert results in a similar distribution in the combined df:
+    plot_heating_medium_distribution(numeric_df)
 
     select_invert_representatives_for_murcia_buildings()
     # compare_urban3r_invert()
