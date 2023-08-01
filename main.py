@@ -453,6 +453,7 @@ def get_parameters_from_dynamic_calc_data(df: pd.DataFrame) -> pd.DataFrame:
     )
     return merged_df
 
+
 def calculate_5R1C_necessary_parameters(df):
     # number of floors
     df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
@@ -489,14 +490,104 @@ def create_boiler_excel(df: pd.DataFrame,
         "oil": "liquids",
         "gas": "gases"
     }
-    boiler = pd.DataFrame(data=np.arange(1, df.shape[0]+1), columns=["ID_Boiler"])
+    boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
     boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
     boiler.to_excel(f"OperationScenario_Component_Boiler_{city_name}.xlsx")
 
 
-def plot_heating_medium_distribution(gdf: gpd.GeoDataFrame):
-    fig = px.bar(numeric_df, x="construction_period_start", y="number_of_buildings")
-    fig.show()
+def load_european_population_df(country: str) -> int:
+    """
+    :param country: name of the country
+    :return: number of people living in the country
+    """
+    population = pd.read_excel(
+        Path(r"Europe_population_2020.xlsx"),
+        sheet_name="Sheet 1",
+        engine="openpyxl",
+        skiprows=8,
+    ).drop(
+        columns=["Unnamed: 2"]
+    )
+    population.columns = ["country", "population"]
+    try:
+        return population.loc[population.loc[:, "country"] == country, "population"].values[0]
+    except:
+        print(f"country is not found. Choose from following list: \n "
+              f"{population['country'].unique()}")
+
+
+def load_european_consumption_df(country: str) -> pd.DataFrame:
+    """
+
+    :param country:
+    :return:
+    """
+    consumption = pd.read_excel(
+        Path(r"Europe_residential_energy_consumption_2020.xlsx"),
+        sheet_name="Sheet 1",
+        engine="openpyxl",
+        skiprows=9,
+    )
+    consumption.columns = ["country", "type", "consumption (TJ)"]
+    consumption["type"] = consumption["type"].str.replace(
+        "Final consumption - other sectors - households - energy use - ", ""
+    ).replace(
+        "Final consumption - other sectors - households - energy use", "total"
+    )
+    consumption_df = consumption.copy()
+    # replace : with 0
+    consumption_df["consumption (TJ)"] = consumption_df["consumption (TJ)"].apply(
+        lambda x: float(str(x).replace(":", "0")))
+    # convert terra joule in kW
+    consumption_df["consumption (GWh)"] = consumption_df["consumption (TJ)"].astype(float) / 3_600 * 1_000
+
+    # drop tJ column
+    consumption_df = consumption_df.drop(columns=["consumption (TJ)"])
+    try:
+        return consumption_df.loc[consumption_df.loc[:, "country"] == country, :]
+    except:
+        print(f"country is not found. Choose from following list: \n "
+              f"{consumption_df['country'].unique()}")
+
+
+def specific_DHW_per_person_EU(country: str) -> float:
+    """
+    :param country: country name
+    :return: returns the consumption for DHW per person in Wh
+    """
+    consumption = load_european_consumption_df(country).query("type == 'water heating'")["consumption (GWh)"].values[0]
+    population = load_european_population_df(country)
+    return consumption / population * 1_000 * 1_000 * 1_000
+
+
+def appliance_electricity_demand_per_person_EU(country: str) -> float:
+    consumption = load_european_consumption_df(country).query("type == 'lighting and electrical appliances'")["consumption (GWh)"].values[0]
+    population = load_european_population_df(country)
+    return consumption / population * 1_000 * 1_000 * 1_000
+
+
+def create_behavior_excel(country: str):
+    behavior_dict = {
+        "ID_Behavior": 1,
+        "id_people_at_home_profile": 1,
+        "target_temperature_at_home_max": 27,
+        "target_temperature_at_home_min": 20,
+        "target_temperature_not_at_home_max": 27,
+        "target_temperature_not_at_home_min": 20,
+        "shading_solar_reduction_rate": 0.5,
+        "shading_threshold_temperature": 30,
+        "temperature_unit": "°C",
+        "id_hot_water_demand_profile": 1,
+        "hot_water_demand_annual": specific_DHW_per_person_EU(country),
+        "hot_water_demand_unit": "Wh/person",
+        "id_appliance_electricity_demand_profile": 1,
+        "appliance_electricity_demand_annual": appliance_electricity_demand_per_person_EU(country),
+        "appliance_electricity_demand_unit": "Wh/person",
+        "id_vehicle_at_home_profile": 1,
+        "id_vehicle_distance_profile": 1,
+    }
+    behavior = pd.DataFrame.from_dict(behavior_dict, orient="index").T
+    behavior.to_excel(f"OperationScenario_Component_Behavior_{country}.xlsx")
 
 
 def convert_to_float(column):
@@ -506,6 +597,7 @@ def convert_to_float(column):
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     city_name = "Murcia"
+    country_name = "Spain"
     shp_filename = Path("merged_osm_geom.shp")
     extended_shp_filename = Path("merged_osm_geom_extended.shp")
     # merge the dataframes and safe the shapefile to shp_filename:
@@ -522,8 +614,10 @@ if __name__ == '__main__':
     # create the boiler table for the 5R1C model:
     create_boiler_excel(df=final_df,
                         city_name=city_name)
+    # create Behavior table for 5R1C model:
+    create_behavior_excel(country=country_name)
     # create the dataframe with 5R1C parameters
-    Create5R1CParameters(df=final_df).main()
+    Create5R1CParameters(df=final_df).main(region_name=city_name)
 
     # check if the random selection from invert results in a similar distribution in the combined df:
     plot_heating_medium_distribution(numeric_df)
