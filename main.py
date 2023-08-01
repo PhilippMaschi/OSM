@@ -468,7 +468,30 @@ def calculate_5R1C_necessary_parameters(df):
     # ration of adjacent to not adjacent (to compare it to invert later)
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
     df_return = get_parameters_from_dynamic_calc_data(df)
+
+    # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
+    # of persons per dwelling from invert
+    df.loc[:, "person_num"] = df.loc[:, "numero_viv"] * df.loc[:, "number_of_persons_per_dwelling"]
+    # building type:
+    df.loc[:, "type"] = ["SFH" if i == 1 else "MFH" for i in df.loc[:, "numero_viv"]]
     return df_return
+
+
+def create_boiler_excel(df: pd.DataFrame,
+                        city_name: str):
+    translation_dict = {
+        "electricity": "Electric",
+        "heat pump air": "Air_HP",
+        "heat pump ground": "Ground_HP",
+        "no heating": "no heating",
+        "coal": "solids",
+        "wood": "solids",
+        "oil": "liquids",
+        "gas": "gases"
+    }
+    boiler = pd.DataFrame(data=np.arange(1, df.shape[0]+1), columns=["ID_Boiler"])
+    boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
+    boiler.to_excel(f"OperationScenario_Component_Boiler_{city_name}.xlsx")
 
 
 def plot_heating_medium_distribution(gdf: gpd.GeoDataFrame):
@@ -482,6 +505,7 @@ def convert_to_float(column):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+    city_name = "Murcia"
     shp_filename = Path("merged_osm_geom.shp")
     extended_shp_filename = Path("merged_osm_geom_extended.shp")
     # merge the dataframes and safe the shapefile to shp_filename:
@@ -495,6 +519,9 @@ if __name__ == '__main__':
     numeric_df = combined_df.apply(convert_to_float)
     # calculate all necessary parameters for the 5R1C model:
     final_df = calculate_5R1C_necessary_parameters(numeric_df)
+    # create the boiler table for the 5R1C model:
+    create_boiler_excel(df=final_df,
+                        city_name=city_name)
     # create the dataframe with 5R1C parameters
     Create5R1CParameters(df=final_df).main()
 
