@@ -256,6 +256,7 @@ if __name__ == "__main__":
             # add the building IDs in case needed later to separate frame
             count_ids[counter] = list(frame.loc[:, "ID_Building"])
             new_row.loc[:, "ID_Building"] = counter
+            new_row.loc[:, "type"] = frame["type"].to_numpy()[0]
             counter += 1
             small_df = pd.concat([small_df, new_row])
 
@@ -270,3 +271,42 @@ if __name__ == "__main__":
     new_df.to_excel("OperationScenario_Component_Building_small_Murcia.xlsx", index=False)
     reference_ids_df = pd.DataFrame.from_dict(count_ids, orient="index").T
     reference_ids_df.to_excel("Original_Building_IDs_to_clusters_Murcia.xlsx", index=False)
+
+    # create PV table for 5R1C model:
+    pv_ids = {
+        1: 0,  # kWp
+        2: 5,
+        3: 15
+    }
+    pv_table = new_df.loc[:, ["ID_Building", "type"]].copy()
+    pv_table.loc[:, "ID_PV"] = 1
+    pv_table.loc[:, "ID_Battery"] = 1
+    pv_table.loc[:, "ID_HotWaterTank"] = 1
+    pv_table.loc[:, "ID_SpaceHeatingTank"] = 1
+    pv_table.loc[:, "ID_HeatingElement"] = 1
+
+    # split table and add ID PV 2 to SFH and PV 3 to MFH
+    pv_sfh = pv_table.query("type == 'SFH'")
+    pv_sfh.loc[:, "ID_PV"] = 2
+    pv_sfh.loc[:, "ID_Battery"] = 2
+    pv_sfh.loc[:, "ID_HotWaterTank"] = 2
+    pv_sfh.loc[:, "ID_SpaceHeatingTank"] = 2
+    pv_sfh.loc[:, "ID_HeatingElement"] = 2
+
+    pv_mfh = pv_table.query("type == 'MFH'")
+    pv_mfh.loc[:, "ID_PV"] = 3
+    pv_mfh.loc[:, "ID_Battery"] = 3
+    pv_mfh.loc[:, "ID_HotWaterTank"] = 3
+    pv_mfh.loc[:, "ID_SpaceHeatingTank"] = 3
+    pv_mfh.loc[:, "ID_HeatingElement"] = 3
+
+    final_pv = pd.concat([pv_table, pv_sfh, pv_mfh], axis=0)
+
+    # create a new building table which corresponds to the PV table (same length, buildings are double)
+    merged_df = final_pv.loc[:, ["ID_Building", "ID_PV", "ID_Battery", "ID_HotWaterTank", "ID_SpaceHeatingTank", "ID_HeatingElement"]].copy()
+    merged_df = merged_df.merge(new_df, on="ID_Building")
+
+    scenario_start = merged_df.loc[:, ["ID_Building", "ID_PV", "ID_Battery", "ID_HotWaterTank", "ID_SpaceHeatingTank", "ID_HeatingElement"]]
+
+    scenario_start.to_excel("Scenario_start_Murcia.xlsx", index=False)
+
