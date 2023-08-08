@@ -105,35 +105,52 @@ class PVGIS:
         pv_generation_dict = {}
         self.pv_calculation = 1
         self.optimal_inclination = 1
-        self.optimal_angle = 1
-        if region:
-            lat, lon = self.get_geo_center(region)
-        req = f"https://re.jrc.ec.europa.eu/api/v5_2/seriescalc?lat={lat}&lon={lon}&" \
-              f"startyear={self.start_year}&" \
-              f"endyear={self.end_year}&" \
-              f"pvcalculation={self.pv_calculation}&" \
-              f"peakpower={self.peak_power}&" \
-              f"loss={self.pv_loss}&" \
-              f"pvtechchoice={self.pv_tech}&" \
-              f"components={1}&" \
-              f"trackingtype={self.tracking_type}&" \
-              f"optimalinclination={self.optimal_inclination}&" \
-              f"optimalangles={self.optimal_angle}"
-        try:
-            # Read the csv from api and use 20 columns to receive the source, because depending on the parameters,
-            # the number of columns could vary. Empty columns are dropped afterwards:
-            df = pd.read_csv(req, sep=",", header=None, names=range(20)).dropna(how="all", axis=1)
-            df = df.dropna().reset_index(drop=True)
-            # set header to first row
-            header = df.iloc[0]
-            df = df.iloc[1:, :]
-            df.columns = header
-            df = df.reset_index(drop=True)
-            pv_generation_dict[Var.pv_generation] = pd.to_numeric(df["P"]).to_numpy()  # unit: W
-            pv_generation_dict[Var.pv_generation_unit] = self.scalar2array(Var.pv_generation_unit_string)
-            return pv_generation_dict
-        except urllib.error.HTTPError:
-            print(f"pv_generation source is not available for region {region}.")
+        # download the PV generation for the optimal case and for east and west orientation:
+        for aspect in ["optimal", 90, -90]:  # 90 = west, -90 = east
+            if aspect == "optimal":
+                added_string = f"optimalangles={1}"
+                name = "optimal"
+            else:
+                added_string = f"aspect={aspect}&" \
+                               f"angle=35"  # assume 35° angle
+                if aspect == 90:
+                    name = "west"
+                elif aspect == -90:
+                    name = "east"
+                else:
+                    assert "aspect not defined for orientation"
+
+            if region:
+                lat, lon = self.get_geo_center(region)
+            req = f"https://re.jrc.ec.europa.eu/api/v5_2/seriescalc?lat={lat}&lon={lon}&" \
+                  f"startyear={self.start_year}&" \
+                  f"endyear={self.end_year}&" \
+                  f"pvcalculation={self.pv_calculation}&" \
+                  f"peakpower={self.peak_power}&" \
+                  f"loss={self.pv_loss}&" \
+                  f"pvtechchoice={self.pv_tech}&" \
+                  f"components={1}&" \
+                  f"trackingtype={self.tracking_type}&" \
+                  f"{added_string}" \
+
+            try:
+                # Read the csv from api and use 20 columns to receive the source, because depending on the parameters,
+                # the number of columns could vary. Empty columns are dropped afterwards:
+                df = pd.read_csv(req, sep=",", header=None, names=range(20)).dropna(how="all", axis=1)
+                df = df.dropna().reset_index(drop=True)
+                # set header to first row
+                header = df.iloc[0]
+                df = df.iloc[1:, :]
+                df.columns = header
+                df = df.reset_index(drop=True)
+                pv_generation_dict[f"{Var.pv_generation}_{name}"] = pd.to_numeric(df["P"]).to_numpy()  # unit: W
+
+
+            except urllib.error.HTTPError:
+                print(f"pv_generation source is not available for region {region} {lat} {lon}.")
+
+        pv_generation_dict[Var.pv_generation_unit] = self.scalar2array(Var.pv_generation_unit_string)
+        return pv_generation_dict
 
     def get_temperature_and_solar_radiation(self,
                                             aspect: float,
@@ -256,7 +273,8 @@ class PVGIS:
                                             lat=lat,
                                             lon=lon)
         try:
-            assert pv_generation_dict[Var.pv_generation].sum() != 0
+            for orientation in ["optimal", "east", "west"]:
+                assert pv_generation_dict[f"{Var.pv_generation}_{orientation}"].sum() != 0
             assert temperature_dict[Var.temperature].sum() != 0
             assert radiation_dict[Var.radiation_south].sum() != 0
             assert radiation_dict[Var.radiation_east].sum() != 0
