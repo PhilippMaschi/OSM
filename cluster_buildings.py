@@ -270,9 +270,14 @@ if __name__ == "__main__":
         show_heatmap(cluster_means, name)
 
     new_df.loc[:, "supply_temperature"] = 38
-    new_df.to_excel(f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
+    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
+                    f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
+    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+                    f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
+
     reference_ids_df = pd.DataFrame.from_dict(count_ids, orient="index").T
-    reference_ids_df.to_excel(f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
+    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+                              f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
 
     # create PV table for 5R1C model:
     pv_ids = {
@@ -340,5 +345,6 @@ if __name__ == "__main__":
                                        "ID_SpaceHeatingTank",
                                        "ID_HeatingElement"]]
 
-    scenario_start.to_excel(f"Scenario_start_{region}.xlsx", index=False)
+    scenario_start.tof_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+                            f"Scenario_start_{region}.xlsx", index=False)
 
