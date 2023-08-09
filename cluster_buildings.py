@@ -214,7 +214,8 @@ def calculate_mean(grouped: pd.DataFrame, names_mean: list, weight_column: str):
 
 
 if __name__ == "__main__":
-    df = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\OperationScenario_Component_Building_Murcia.xlsx"))
+    region = "Murcia"
+    df = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM") / f"OperationScenario_Component_Building_{region}.xlsx")
     df_cluster_sfh, df_cluster_mfh = split_sfh_mfh(df)
     shf_upper, sfh_lower = split_df_based_on_Af_quantile(df_cluster_sfh, quantile=0.9)
     mfh_upper, mfh_lower = split_df_based_on_Af_quantile(df_cluster_mfh, quantile=0.9)
@@ -268,9 +269,9 @@ if __name__ == "__main__":
         cluster_means = normalized_df.groupby('Cluster').mean()
         show_heatmap(cluster_means, name)
 
-    new_df.to_excel("OperationScenario_Component_Building_small_Murcia.xlsx", index=False)
+    new_df.to_excel(f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
     reference_ids_df = pd.DataFrame.from_dict(count_ids, orient="index").T
-    reference_ids_df.to_excel("Original_Building_IDs_to_clusters_Murcia.xlsx", index=False)
+    reference_ids_df.to_excel(f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
 
     # create PV table for 5R1C model:
     pv_ids = {
@@ -336,5 +337,5 @@ if __name__ == "__main__":
                                        "ID_SpaceHeatingTank",
                                        "ID_HeatingElement"]]
 
-    scenario_start.to_excel("Scenario_start_Murcia.xlsx", index=False)
+    scenario_start.to_excel(f"Scenario_start_{region}.xlsx", index=False)
 

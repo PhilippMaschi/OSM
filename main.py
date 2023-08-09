@@ -78,7 +78,7 @@ BUILDING_FILTER = [
     # "other no cal",
     # "other cal",
     # "commercial",
-    "social housing",
+    # "social housing",
     # "shared",
     # "offices",
     "residential",
@@ -386,6 +386,7 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame):
     # drop the rows where buildings are built between 1900-1980 etc.
     df_invert = df_invert.loc[df_invert.loc[:, "construction_period"] != "1900-1980", :]
     df_invert = df_invert.loc[df_invert.loc[:, "construction_period"] != "2007-2008", :]
+    df_invert = df_invert.loc[df_invert.loc[:, "construction_period"] != "1981-2006", :]
     # group invert data after construction period:
     construction_periods = list(df_invert.loc[:, "construction_period"].unique())
     gdf = gdf.dropna(axis=1)
@@ -472,9 +473,9 @@ def calculate_5R1C_necessary_parameters(df):
 
     # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
     # of persons per dwelling from invert
-    df.loc[:, "person_num"] = df.loc[:, "numero_viv"] * df.loc[:, "number_of_persons_per_dwelling"]
+    df_return.loc[:, "person_num"] = df_return.loc[:, "numero_viv"] * df_return.loc[:, "number_of_persons_per_dwelling"]
     # building type:
-    df.loc[:, "type"] = ["SFH" if i == 1 else "MFH" for i in df.loc[:, "numero_viv"]]
+    df_return.loc[:, "type"] = ["SFH" if i == 1 else "MFH" for i in df_return.loc[:, "numero_viv"]]
     return df_return
 
 
@@ -488,7 +489,8 @@ def create_boiler_excel(df: pd.DataFrame,
         "coal": "solids",
         "wood": "solids",
         "oil": "liquids",
-        "gas": "gases"
+        "gas": "gases",
+        "district heating": "district heating"
     }
     boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
     boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
@@ -611,16 +613,17 @@ if __name__ == '__main__':
     numeric_df = combined_df.apply(convert_to_float)
     # calculate all necessary parameters for the 5R1C model:
     final_df = calculate_5R1C_necessary_parameters(numeric_df)
+
+    # create the dataframe with 5R1C parameters
+    Create5R1CParameters(df=final_df).main(region_name=city_name)
+
     # create the boiler table for the 5R1C model:
     create_boiler_excel(df=final_df,
                         city_name=city_name)
     # create Behavior table for 5R1C model:
     create_behavior_excel(country=country_name)
-    # create the dataframe with 5R1C parameters
-    Create5R1CParameters(df=final_df).main(region_name=city_name)
 
     # check if the random selection from invert results in a similar distribution in the combined df:
-    plot_heating_medium_distribution(numeric_df)
 
     # compare_urban3r_invert()
     # show_murcia_data()
