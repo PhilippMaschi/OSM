@@ -274,39 +274,67 @@ if __name__ == "__main__":
 
     # create PV table for 5R1C model:
     pv_ids = {
-        1: 0,  # kWp
-        2: 5,
-        3: 15
+        1: (0, "optimal"),  # kWp, orientation
+        2: (5, "optimal"),
+        3: (15, "optimal"),
+        4: (0, "east"),
+        5: (5, "east"),
+        6: (15, "east"),
+        7: (0, "west"),
+        8: (5, "west"),
+        9: (15, "west"),
+
     }
     pv_table = new_df.loc[:, ["ID_Building", "type"]].copy()
-    pv_table.loc[:, "ID_PV"] = 1
-    pv_table.loc[:, "ID_Battery"] = 1
-    pv_table.loc[:, "ID_HotWaterTank"] = 1
-    pv_table.loc[:, "ID_SpaceHeatingTank"] = 1
-    pv_table.loc[:, "ID_HeatingElement"] = 1
+    pv_table_long = pd.DataFrame()
+    for building_type, group in pv_table.groupby("type"):
+        if building_type == "SFH":
+            pv_power = [0, 5]
+        else:
+            pv_power = [0, 15]
+        for pv_id, (kwp, orientation) in pv_ids.items():
+            if kwp in pv_power:
+                new_frame = group.copy()
+                new_frame.loc[:, "ID_PV"] = pv_id
+                pv_table_long = pd.concat([pv_table_long, new_frame], axis=0)
+
+    pv_table_long.loc[:, "ID_Battery"] = 1
+    pv_table_long.loc[:, "ID_HotWaterTank"] = 1
+    pv_table_long.loc[:, "ID_SpaceHeatingTank"] = 1
+    pv_table_long.loc[:, "ID_HeatingElement"] = 1
 
     # split table and add ID PV 2 to SFH and PV 3 to MFH
-    pv_sfh = pv_table.query("type == 'SFH'")
+    pv_sfh = pv_table_long.query("type == 'SFH'")
     pv_sfh.loc[:, "ID_PV"] = 2
     pv_sfh.loc[:, "ID_Battery"] = 2
     pv_sfh.loc[:, "ID_HotWaterTank"] = 2
     pv_sfh.loc[:, "ID_SpaceHeatingTank"] = 2
     pv_sfh.loc[:, "ID_HeatingElement"] = 2
 
-    pv_mfh = pv_table.query("type == 'MFH'")
+    pv_mfh = pv_table_long.query("type == 'MFH'")
     pv_mfh.loc[:, "ID_PV"] = 3
     pv_mfh.loc[:, "ID_Battery"] = 3
     pv_mfh.loc[:, "ID_HotWaterTank"] = 3
     pv_mfh.loc[:, "ID_SpaceHeatingTank"] = 3
     pv_mfh.loc[:, "ID_HeatingElement"] = 3
 
-    final_pv = pd.concat([pv_table, pv_sfh, pv_mfh], axis=0)
+    final_pv = pd.concat([pv_table_long, pv_sfh, pv_mfh], axis=0)
 
     # create a new building table which corresponds to the PV table (same length, buildings are double)
-    merged_df = final_pv.loc[:, ["ID_Building", "ID_PV", "ID_Battery", "ID_HotWaterTank", "ID_SpaceHeatingTank", "ID_HeatingElement"]].copy()
+    merged_df = final_pv.loc[:, ["ID_Building",
+                                 "ID_PV",
+                                 "ID_Battery",
+                                 "ID_HotWaterTank",
+                                 "ID_SpaceHeatingTank",
+                                 "ID_HeatingElement"]].copy()
     merged_df = merged_df.merge(new_df, on="ID_Building")
 
-    scenario_start = merged_df.loc[:, ["ID_Building", "ID_PV", "ID_Battery", "ID_HotWaterTank", "ID_SpaceHeatingTank", "ID_HeatingElement"]]
+    scenario_start = merged_df.loc[:, ["ID_Building",
+                                       "ID_PV",
+                                       "ID_Battery",
+                                       "ID_HotWaterTank",
+                                       "ID_SpaceHeatingTank",
+                                       "ID_HeatingElement"]]
 
     scenario_start.to_excel("Scenario_start_Murcia.xlsx", index=False)
 
