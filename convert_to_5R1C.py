@@ -18,7 +18,7 @@ class Building:
 
 class Create5R1CParameters:
     def __init__(self, df):
-        self.building_df = pd.DataFrame(columns=["ID Building",
+        self.building_df = pd.DataFrame(columns=["ID_Building",
                                                  "type",
                                                  "person_num",
                                                  "Af", "Hop", "Htr_w", "Hve", "CM_factor", "Am_factor",
@@ -201,7 +201,7 @@ class Create5R1CParameters:
         return roh_ca * air_volume_flow
 
     def fill_building_df(self):
-        self.building_df.loc[:, "ID Building"] = np.arange(1, len(self.Af)+1)
+        self.building_df.loc[:, "ID_Building"] = np.arange(1, len(self.Af)+1)
         self.building_df.loc[:, "Af"] = self.Af
         self.building_df.loc[:, "Hop"] = self.calculate_Hop()
         self.building_df.loc[:, "Htr_w"] = self.calculate_Htr_w()
