@@ -269,6 +269,7 @@ if __name__ == "__main__":
         cluster_means = normalized_df.groupby('Cluster').mean()
         show_heatmap(cluster_means, name)
 
+    new_df.loc[:, "supply_temperature"] = 38
     new_df.to_excel(f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
     reference_ids_df = pd.DataFrame.from_dict(count_ids, orient="index").T
     reference_ids_df.to_excel(f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
@@ -304,20 +305,22 @@ if __name__ == "__main__":
     pv_table_long.loc[:, "ID_SpaceHeatingTank"] = 1
     pv_table_long.loc[:, "ID_HeatingElement"] = 1
 
-    # split table and add ID PV 2 to SFH and PV 3 to MFH
+    # split table and add all appliances:
     pv_sfh = pv_table_long.query("type == 'SFH'")
-    pv_sfh.loc[:, "ID_PV"] = 2
-    pv_sfh.loc[:, "ID_Battery"] = 2
     pv_sfh.loc[:, "ID_HotWaterTank"] = 2
     pv_sfh.loc[:, "ID_SpaceHeatingTank"] = 2
     pv_sfh.loc[:, "ID_HeatingElement"] = 2
+    # battery only for buildings with PV
+    pv_sfh.loc[pv_sfh.loc[:, "ID_PV"] != 1, "ID_Battery"] = 2
+    pv_sfh.loc[pv_sfh.loc[:, "ID_PV"] == 1, "ID_Battery"] = 1
 
     pv_mfh = pv_table_long.query("type == 'MFH'")
-    pv_mfh.loc[:, "ID_PV"] = 3
-    pv_mfh.loc[:, "ID_Battery"] = 3
     pv_mfh.loc[:, "ID_HotWaterTank"] = 3
     pv_mfh.loc[:, "ID_SpaceHeatingTank"] = 3
     pv_mfh.loc[:, "ID_HeatingElement"] = 3
+    # battery only for buildings with PV
+    pv_mfh.loc[pv_mfh.loc[:, "ID_PV"] != 1, "ID_Battery"] = 3
+    pv_mfh.loc[pv_mfh.loc[:, "ID_PV"] == 1, "ID_Battery"] = 1
 
     final_pv = pd.concat([pv_table_long, pv_sfh, pv_mfh], axis=0)
 
