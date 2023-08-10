@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
+import itertools
 from sklearn.cluster import AgglomerativeClustering, KMeans, DBSCAN
 from scipy.cluster import hierarchy
 from scipy.cluster.hierarchy import cophenet, dendrogram
@@ -284,12 +285,10 @@ if __name__ == "__main__":
         1: (0, "optimal"),  # kWp, orientation
         2: (5, "optimal"),
         3: (15, "optimal"),
-        4: (0, "east"),
-        5: (5, "east"),
-        6: (15, "east"),
-        7: (0, "west"),
-        8: (5, "west"),
-        9: (15, "west"),
+        4: (5, "east"),
+        5: (15, "east"),
+        6: (5, "west"),
+        7: (15, "west"),
 
     }
     pv_table = new_df.loc[:, ["ID_Building", "type"]].copy()
@@ -305,29 +304,62 @@ if __name__ == "__main__":
                 new_frame.loc[:, "ID_PV"] = pv_id
                 pv_table_long = pd.concat([pv_table_long, new_frame], axis=0)
 
-    pv_table_long.loc[:, "ID_Battery"] = 1
-    pv_table_long.loc[:, "ID_HotWaterTank"] = 1
-    pv_table_long.loc[:, "ID_SpaceHeatingTank"] = 1
-    pv_table_long.loc[:, "ID_HeatingElement"] = 1
+    params_values = {
+        "ID_HotWaterTank": [1, 2, 3],
+        "ID_SpaceHeatingTank": [1, 2, 3],
+        "ID_HeatingElement": [1, 2, 3],
+        "ID_Battery": [1, 2, 3],
+    }  # boiler and space cooling is done in db_init
+    excluded_lists = pv_table_long.loc[:, ["ID_Building", "ID_PV", "type"]].values.tolist()
+    first_excluded_key = "ID_Building"
+    # create new dictionary where the excluded list is the first element of the first excluded key
+    new_dict = {first_excluded_key: excluded_lists}
+    for key, values in params_values.items():
+        new_dict[key] = values
+    keys, values = zip(*new_dict.items())
+    permutations_dicts = [dict(zip(keys, v)) for v in itertools.product(*values)]
+    df = pd.DataFrame(permutations_dicts)
+    # expand the column with the excluded values with their key names:
+    df[["ID_Building", "ID_PV", "type"]] = df[first_excluded_key].apply(pd.Series)
 
-    # split table and add all appliances:
-    pv_sfh = pv_table_long.query("type == 'SFH'")
-    pv_sfh.loc[:, "ID_HotWaterTank"] = 2
-    pv_sfh.loc[:, "ID_SpaceHeatingTank"] = 2
-    pv_sfh.loc[:, "ID_HeatingElement"] = 2
-    # battery only for buildings with PV
-    pv_sfh.loc[pv_sfh.loc[:, "ID_PV"] != 1, "ID_Battery"] = 2
-    pv_sfh.loc[pv_sfh.loc[:, "ID_PV"] == 1, "ID_Battery"] = 1
+    # now delete the scenarios that can not happen:
+    df_start = df.copy()
+    # no battery when there is no PV:
+    df_start.drop(df_start.loc[
+                  (df_start.loc[:, "ID_PV"].isin([1, 4, 7])) & (df_start.loc[:, "ID_Battery"] != 1), :
+                  ].index, inplace=True)
+    # no heating element when there is no PV
+    df_start.drop(df_start.loc[
+                  (df_start.loc[:, "ID_PV"].isin([1, 4, 7])) & (df_start.loc[:, "ID_HeatingElement"] != 1), :
+                  ].index, inplace=True)
 
-    pv_mfh = pv_table_long.query("type == 'MFH'")
-    pv_mfh.loc[:, "ID_HotWaterTank"] = 3
-    pv_mfh.loc[:, "ID_SpaceHeatingTank"] = 3
-    pv_mfh.loc[:, "ID_HeatingElement"] = 3
-    # battery only for buildings with PV
-    pv_mfh.loc[pv_mfh.loc[:, "ID_PV"] != 1, "ID_Battery"] = 3
-    pv_mfh.loc[pv_mfh.loc[:, "ID_PV"] == 1, "ID_Battery"] = 1
+    # big tanks, heating element only for MFH and small only for SFH:
+    # Hot water tank
+    df_start.drop(df_start.loc[
+                      (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HotWaterTank"] == 2), :
+                  ].index, inplace=True)
+    df_start.drop(df_start.loc[
+                      (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HotWaterTank"] == 3), :
+                  ].index, inplace=True)
+    # space heating tank
+    df_start.drop(df_start.loc[
+                      (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 2), :
+                  ].index, inplace=True)
+    df_start.drop(df_start.loc[
+                      (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 3), :
+                  ].index, inplace=True)
 
-    final_pv = pd.concat([pv_table_long, pv_sfh, pv_mfh], axis=0)
+    # heating element
+    df_start.drop(df_start.loc[
+                      (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HeatingElement"] == 2), :
+                  ].index, inplace=True)
+    df_start.drop(df_start.loc[
+                      (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HeatingElement"] == 3), :
+                  ].index, inplace=True)
+    df_start = df_start.reset_index(drop=True)
+
+
+    final_pv = df_start.copy()
 
     # create a new building table which corresponds to the PV table (same length, buildings are double)
     merged_df = final_pv.loc[:, ["ID_Building",
@@ -345,6 +377,6 @@ if __name__ == "__main__":
                                        "ID_SpaceHeatingTank",
                                        "ID_HeatingElement"]]
 
-    scenario_start.tof_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+    scenario_start.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
                             f"Scenario_start_{region}.xlsx", index=False)
 
