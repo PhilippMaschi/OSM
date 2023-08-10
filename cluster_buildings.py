@@ -326,11 +326,11 @@ if __name__ == "__main__":
     df_start = df.copy()
     # no battery when there is no PV:
     df_start.drop(df_start.loc[
-                  (df_start.loc[:, "ID_PV"].isin([1, 4, 7])) & (df_start.loc[:, "ID_Battery"] != 1), :
+                  (df_start.loc[:, "ID_PV"] == 1) & (df_start.loc[:, "ID_Battery"] != 1), :
                   ].index, inplace=True)
     # no heating element when there is no PV
     df_start.drop(df_start.loc[
-                  (df_start.loc[:, "ID_PV"].isin([1, 4, 7])) & (df_start.loc[:, "ID_HeatingElement"] != 1), :
+                  (df_start.loc[:, "ID_PV"] == 1) & (df_start.loc[:, "ID_HeatingElement"] != 1), :
                   ].index, inplace=True)
 
     # big tanks, heating element only for MFH and small only for SFH:
