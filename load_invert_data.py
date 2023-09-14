@@ -266,7 +266,7 @@ def get_number_of_buildings_from_invert() -> pd.DataFrame:
             continue
         bc_group.loc[:, "number_of_buildings"] = bc_group.loc[:, "index"].map(group.loc[:, "number_of_buildings"])
         bc_group.loc[:, "heating_medium"] = HEATING_SYSTEM_INDEX[heat_system]
-
+        # create representative building out of the same invert buildings with different heating systems
         new_building = create_representative_building(group=bc_group,
                                                       column_name_with_numbers="number_of_buildings",
                                                       merging_names=merging_names,

@@ -272,9 +272,9 @@ if __name__ == "__main__":
 
     new_df.loc[:, "supply_temperature"] = 38
     new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
+                    f"OperationScenario_Component_Building.xlsx", index=False)
     new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component_Building_small_{region}.xlsx", index=False)
+                    f"OperationScenario_Component.xlsx", index=False)
 
     reference_ids_df = pd.DataFrame.from_dict(count_ids, orient="index").T
     reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
@@ -309,7 +309,8 @@ if __name__ == "__main__":
         "ID_SpaceHeatingTank": [1, 2, 3],
         "ID_HeatingElement": [1, 2, 3],
         "ID_Battery": [1, 2, 3],
-    }  # boiler and space cooling is done in db_init
+        "ID_Boiler": [1, 2, 3, 4]
+    }  #  space cooling is done in db_init
     excluded_lists = pv_table_long.loc[:, ["ID_Building", "ID_PV", "type"]].values.tolist()
     first_excluded_key = "ID_Building"
     # create new dictionary where the excluded list is the first element of the first excluded key
@@ -332,7 +333,10 @@ if __name__ == "__main__":
     df_start.drop(df_start.loc[
                   (df_start.loc[:, "ID_PV"] == 1) & (df_start.loc[:, "ID_HeatingElement"] != 1), :
                   ].index, inplace=True)
-
+    # no heating tank when there is no HP
+    df_start.drop(df_start.loc[
+                  (df_start.loc[:, "ID_Boiler"].isin([1, 4])) & (df_start.loc[:, "ID_SpaceHeatingTank"] != 1), :
+                  ].index, inplace=True)
     # big tanks, heating element only for MFH and small only for SFH:
     # Hot water tank
     df_start.drop(df_start.loc[
@@ -367,7 +371,8 @@ if __name__ == "__main__":
                                  "ID_Battery",
                                  "ID_HotWaterTank",
                                  "ID_SpaceHeatingTank",
-                                 "ID_HeatingElement"]].copy()
+                                 "ID_HeatingElement",
+                                 "ID_Boiler"]].copy()
     merged_df = merged_df.merge(new_df, on="ID_Building")
 
     scenario_start = merged_df.loc[:, ["ID_Building",
@@ -375,7 +380,8 @@ if __name__ == "__main__":
                                        "ID_Battery",
                                        "ID_HotWaterTank",
                                        "ID_SpaceHeatingTank",
-                                       "ID_HeatingElement"]]
+                                       "ID_HeatingElement",
+                                       "ID_Boiler"]]
 
     scenario_start.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
                             f"Scenario_start_{region}.xlsx", index=False)

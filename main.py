@@ -98,11 +98,6 @@ USO_PRINCIPAL_TO_INVERT_TYPE = {
 }
 
 
-def show_place(north: float, south: float, east: float, west: float):
-    G = ox.graph_from_bbox(north, south, east, west, network_type='all')
-    # plot the network graph
-    fig, ax = ox.plot_graph(G)
-
 
 def get_osm_gdf(city: dict):
     buildings = ox.geometries_from_bbox(city["north"], city["south"], city["east"], city["west"],
@@ -122,12 +117,14 @@ def get_osm_building_numbers(city: dict, big_df: pd.DataFrame):
 
 
 def load_invert_spain_data():
-    df = pd.read_csv(r"C:\Users\mascherbauer\PycharmProjects\OSM\Building_Classes_2020_Spain.csv", sep=";")
+    df = pd.read_csv(Path(
+        r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data\Building_Classes_2020_Spain.csv", sep=";"
+    ))
     return df
 
 
 def get_urban3r_murcia_gdf():
-    murcia_df = gpd.read_file("30030.gpkg")
+    murcia_df = gpd.read_file(Path(r"input_data\30030.gpkg"))
     df = murcia_df.cx[MURCIA["west"]: MURCIA["east"], MURCIA["south"]: MURCIA["north"]].copy()
     df["number_of_buildings"] = 1
     print(f"URBAN3R buildings in database total: {df['number_of_buildings'].sum()}")
@@ -233,7 +230,7 @@ def compare_urban3r_invert():
 
 
 def show_murcia_data():
-    murcia_df = gpd.read_file("30030.gpkg")
+    murcia_df = gpd.read_file(Path(r"input_data\30030.gpkg"))
     # create a Shapely box object from the bounding box coordinates
     bbox = box(MURCIA["west"], MURCIA["south"], MURCIA["east"], MURCIA["north"])
     filtered_gdf = murcia_df.cx[MURCIA["west"]: MURCIA["east"], MURCIA["south"]: MURCIA["north"]].copy()
@@ -271,16 +268,6 @@ def show_murcia_data():
     )
     fig.show()
 
-
-def plotly_number_of_buildings(long_df: pd.DataFrame):
-    fig = px.bar(
-        data_frame=long_df,
-        x="building_type",
-        y="count",
-        color="city",
-        barmode="group"
-    )
-    fig.show()
 
 
 def merge_osm_urban3r(output_filename: Path) -> None:
@@ -444,7 +431,7 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame):
 
 def get_parameters_from_dynamic_calc_data(df: pd.DataFrame) -> pd.DataFrame:
     # load dynamic calc data
-    dynamic_calc = pd.read_csv("dynamic_calc_data_bc_2020_Spain.csv", sep=";")
+    dynamic_calc = pd.read_csv(Path(r"input_data\dynamic_calc_data_bc_2020_Spain.csv"), sep=";")
     # map the CM_Factor and the Am_factor to the df through the bc_index:
     df = df.rename(columns={"index": "bc_index"})
     merged_df = df.merge(
@@ -494,7 +481,7 @@ def create_boiler_excel(df: pd.DataFrame,
     }
     boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
     boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
-    boiler.to_excel(f"OperationScenario_Component_Boiler_{city_name}.xlsx")
+    boiler.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
 
 
 def load_european_population_df(country: str) -> int:
@@ -503,7 +490,7 @@ def load_european_population_df(country: str) -> int:
     :return: number of people living in the country
     """
     population = pd.read_excel(
-        Path(r"Europe_population_2020.xlsx"),
+        Path(r"input_data\Europe_population_2020.xlsx"),
         sheet_name="Sheet 1",
         engine="openpyxl",
         skiprows=8,
@@ -525,7 +512,7 @@ def load_european_consumption_df(country: str) -> pd.DataFrame:
     :return:
     """
     consumption = pd.read_excel(
-        Path(r"Europe_residential_energy_consumption_2020.xlsx"),
+        Path(r"input_data\Europe_residential_energy_consumption_2020.xlsx"),
         sheet_name="Sheet 1",
         engine="openpyxl",
         skiprows=9,
@@ -589,7 +576,7 @@ def create_behavior_excel(country: str):
         "id_vehicle_distance_profile": 1,
     }
     behavior = pd.DataFrame.from_dict(behavior_dict, orient="index").T
-    behavior.to_excel(f"OperationScenario_Component_Behavior_{country}.xlsx")
+    behavior.to_excel(Path(r"output_data") / f"OperationScenario_Component_Behavior_{country}.xlsx")
 
 
 def convert_to_float(column):
@@ -604,7 +591,7 @@ if __name__ == '__main__':
     extended_shp_filename = Path("merged_osm_geom_extended.shp")
     # merge the dataframes and safe the shapefile to shp_filename:
     merge_osm_urban3r(output_filename=shp_filename)
-    # add the adjacent length and circumference
+    # add the adjacent length and circumference with mosis wonder:
     big_df = calc_premeter(input_lyr=shp_filename,
                            output_lyr=extended_shp_filename, )
     # combine the Urban3R information with the Invert database
@@ -623,19 +610,3 @@ if __name__ == '__main__':
     # create Behavior table for 5R1C model:
     create_behavior_excel(country=country_name)
 
-    # check if the random selection from invert results in a similar distribution in the combined df:
-
-    # compare_urban3r_invert()
-    # show_murcia_data()
-    #
-    # city_list = [MURCIA, KWIDZYN, LEEUWARDEN, BAARD, SUCINA, RUMIA]
-    # big_df = pd.DataFrame(columns=["building", "city"])
-    # for city in city_list:
-    #     big_df = get_osm_buildings(city, big_df)
-    #
-    # counts = big_df.groupby("city")['building'].value_counts()
-    # long_df = pd.DataFrame({'building_type': counts.index.get_level_values("building"),
-    #                        'city': counts.index.get_level_values("city"),
-    #                        'count': counts.values})
-    # long_df["count"] = long_df["count"].astype(float)
-    # plotly_number_of_buildings(long_df)
