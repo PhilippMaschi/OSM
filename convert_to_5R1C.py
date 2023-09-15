@@ -219,19 +219,11 @@ class Create5R1CParameters:
         self.building_df.loc[:, "person_num"] = self.df.loc[:, "person_num"]
 
 
-    def main(self, region_name: str):
+    def main(self) -> (pd.DataFrame, pd.DataFrame):
         print("creating 5R1C parameters...")
         self.fill_params_invert()
-
         self.fill_building_df()
-        self.building_df.to_excel(
-            Path(f"output_data") / f"OperationScenario_Component_Building_{region_name}_non_clustered.xlsx", index=False
-        )
-        print("saved OperationScenario_Component_Building to xlsx")
-        self.df.loc[:, "ID_Building"] = np.arange(1, self.df.shape[0]+1)
-        self.df.to_excel(
-            Path(f"output_data") / f"combined_building_df_{region_name}_non_clustered.xlsx", index=False)
-        print("saved dataframe with all information to xlsx")
+        return self.building_df, self.df
 
 
 if __name__ == "__main__":

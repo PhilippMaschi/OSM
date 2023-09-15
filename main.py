@@ -594,15 +594,32 @@ if __name__ == '__main__':
     # add the adjacent length and circumference with mosis wonder:
     big_df = calc_premeter(input_lyr=shp_filename,
                            output_lyr=extended_shp_filename, )
+
     # combine the Urban3R information with the Invert database
     combined_df = add_invert_data_to_gdf_table(big_df)
+
     # turn them to numeric
     numeric_df = combined_df.apply(convert_to_float)
     # calculate all necessary parameters for the 5R1C model:
     final_df = calculate_5R1C_necessary_parameters(numeric_df)
 
     # create the dataframe with 5R1C parameters
-    Create5R1CParameters(df=final_df).main(region_name=city_name)
+    building_df, total_df = Create5R1CParameters(df=final_df).main()
+    building_df.to_excel(
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered.xlsx", index=False
+    )
+    print("saved OperationScenario_Component_Building to xlsx")
+    total_df.loc[:, "ID_Building"] = np.arange(1, total_df.shape[0] + 1)
+    # add representative point for each building
+    total_df['rep_point'] = total_df['geometry'].apply(lambda x: x.representative_point())
+    total_df.to_excel(
+        Path(f"output_data") / f"combined_building_df_{city_name}_non_clustered.xlsx", index=False)
+    print("saved dataframe with all information to xlsx")
+
+    # create csv file with coordinates and shp file with dots to check in QGIS
+    coordinate_df = gpd.GeoDataFrame(total_df[["rep_point", "ID_Building"]]).set_geometry("rep_point")
+    coordinate_df.to_file(Path(r"output_data") / f"building_coordinates_{city_name}.shp", driver="ESRI Shapefile")
+    coordinate_df.to_csv(Path(r"output_data") / f"Building_coordinates_{city_name}.csv")
 
     # create the boiler table for the 5R1C model:
     create_boiler_excel(df=final_df,
