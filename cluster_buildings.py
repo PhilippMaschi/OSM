@@ -420,7 +420,7 @@ def main():
     new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
                     f"OperationScenario_Component_Building.xlsx", index=False)
     new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component.xlsx", index=False)
+                    f"OperationScenario_Component_Building.xlsx", index=False)
 
     # create the scenario table for the flex model
     scenario_table_for_flex_model(new_building_df=new_df, region=region)

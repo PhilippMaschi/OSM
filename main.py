@@ -482,6 +482,10 @@ def create_boiler_excel(df: pd.DataFrame,
     boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
     boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
     boiler.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
+    boiler.to_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
+        f"OperationScenario_Component_Boiler_{city_name}.xlsx"
+    )
 
 
 def load_european_population_df(country: str) -> int:
@@ -577,6 +581,10 @@ def create_behavior_excel(country: str):
     }
     behavior = pd.DataFrame.from_dict(behavior_dict, orient="index").T
     behavior.to_excel(Path(r"output_data") / f"OperationScenario_Component_Behavior_{country}.xlsx")
+    behavior.to_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
+                      f"OperationScenario_Component_Behavior_{country}.xlsx"
+    )
 
 
 def convert_to_float(column):
@@ -613,13 +621,22 @@ if __name__ == '__main__':
     # add representative point for each building
     total_df['rep_point'] = total_df['geometry'].apply(lambda x: x.representative_point())
     total_df.to_excel(
-        Path(f"output_data") / f"combined_building_df_{city_name}_non_clustered.xlsx", index=False)
+        Path(f"output_data") / f"combined_building_df_{city_name}_non_clustered.xlsx",
+        index=False
+    )
+    total_df.to_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}" /
+        f"combined_building_df_{city_name}_non_clustered.xlsx",
+        index=False
+    )
     print("saved dataframe with all information to xlsx")
 
     # create csv file with coordinates and shp file with dots to check in QGIS
     coordinate_df = gpd.GeoDataFrame(total_df[["rep_point", "ID_Building"]]).set_geometry("rep_point")
     coordinate_df.to_file(Path(r"output_data") / f"building_coordinates_{city_name}.shp", driver="ESRI Shapefile")
-    coordinate_df.to_csv(Path(r"output_data") / f"Building_coordinates_{city_name}.csv")
+    coordinate_df.to_csv(Path(r"output_data") / f"Building_coordinates_{city_name}.csv", index=False)
+    coordinate_df.to_csv(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}"
+                         / f"Building_coordinates_{city_name}.csv", index=False)
 
     # create the boiler table for the 5R1C model:
     create_boiler_excel(df=final_df,
