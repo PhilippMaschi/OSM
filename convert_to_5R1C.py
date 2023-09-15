@@ -225,12 +225,12 @@ class Create5R1CParameters:
 
         self.fill_building_df()
         self.building_df.to_excel(
-            Path(f"output_data") / f"OperationScenario_Component_Building_{region_name}.xlsx", index=False
+            Path(f"output_data") / f"OperationScenario_Component_Building_{region_name}_non_clustered.xlsx", index=False
         )
         print("saved OperationScenario_Component_Building to xlsx")
         self.df.loc[:, "ID_Building"] = np.arange(1, self.df.shape[0]+1)
         self.df.to_excel(
-            Path(f"output_data") / f"combined_building_df_{region_name}.xlsx", index=False)
+            Path(f"output_data") / f"combined_building_df_{region_name}_non_clustered.xlsx", index=False)
         print("saved dataframe with all information to xlsx")
 
 

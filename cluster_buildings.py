@@ -10,8 +10,10 @@ import seaborn as sns
 from yellowbrick.cluster import KElbowVisualizer
 from sklearn.metrics import davies_bouldin_score
 import warnings
+
 # Suppress the FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 def hierarchical_cluster(df: pd.DataFrame):
     # possible linkages are: ward, average
@@ -89,10 +91,10 @@ def split_df_based_on_Af_quantile(df_q: pd.DataFrame, quantile: float) -> (pd.Da
 
 def split_sfh_mfh(df_to_split: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
     df_to_split["window_area"] = df_to_split["effective_window_area_west_east"] + \
-                        df_to_split["effective_window_area_south"] + \
-                        df_to_split["effective_window_area_north"]
+                                 df_to_split["effective_window_area_south"] + \
+                                 df_to_split["effective_window_area_north"]
     df_to_split = df_to_split.drop(columns=["internal_gains", "effective_window_area_west_east",
-                          "effective_window_area_south", "effective_window_area_north"])
+                                            "effective_window_area_south", "effective_window_area_north"])
     df_cluster_sfh = df_to_split.query("type == 'SFH'").drop(columns="type").set_index("ID_Building")
     df_cluster_mfh = df_to_split.query("type == 'MFH'").drop(columns="type").set_index("ID_Building")
     return df_cluster_sfh, df_cluster_mfh
@@ -161,9 +163,6 @@ def plot_score_results(name: str, x_values: list, y_values: list):
     plt.show()
 
 
-# hierarchical_cluster(df_cluster_sfh_norm)
-
-
 def find_number_of_cluster(min_number: int,
                            max_number: int,
                            df_norm: pd.DataFrame,
@@ -214,37 +213,50 @@ def calculate_mean(grouped: pd.DataFrame, names_mean: list, weight_column: str):
     return new_row
 
 
-if __name__ == "__main__":
-    region = "Murcia"
-    df = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM") / f"OperationScenario_Component_Building_{region}.xlsx")
-    df_cluster_sfh, df_cluster_mfh = split_sfh_mfh(df)
+def create_cluster_dict(dataframe: pd.DataFrame) -> dict:
+    """ creates a dictionary containing dfs for SFH and MFH. A seperate df for the 0.9 quantile of
+     buildings with highest floor area is created"""
+    df_cluster_sfh, df_cluster_mfh = split_sfh_mfh(dataframe)
     shf_upper, sfh_lower = split_df_based_on_Af_quantile(df_cluster_sfh, quantile=0.9)
     mfh_upper, mfh_lower = split_df_based_on_Af_quantile(df_cluster_mfh, quantile=0.9)
-
-    cluster_dict = {
+    return {
         "sfh_upper": shf_upper,
         "sfh_lower": sfh_lower,
         "mfh_upper": mfh_upper,
         "mfh_lower": mfh_lower
     }
-    number_of_cluster = {}  # use davies bouldin as reference
-    for sfh_or_mfh, cluster_df in cluster_dict.items():
-        number = find_number_of_cluster(min_number=5,
-                                        max_number=min([len(cluster_df) - 20, 30]),
-                                        df_norm=normalize_df(cluster_df),
-                                        sfh_mfh=sfh_or_mfh)
-        number_of_cluster[sfh_or_mfh] = number
 
-    # create a new building dataframe:
+
+def save_ids_from_each_cluster(counted_ids: dict, region: str) -> None:
+    reference_ids_df = pd.DataFrame.from_dict(counted_ids, orient="index").T
+    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+                              f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
+
+
+def create_new_building_df_from_cluster(number_of_cluster: dict,
+                                        cluster_dict: dict,
+                                        old_df: pd.DataFrame,
+                                        region: str
+                                        ) -> pd.DataFrame:
+    """
+    create a new building dataframe: instead of 5000 buildings the mean of each cluster
+    :param number_of_cluster: dict that contains the number of cluster for each dataset (SFH, MFH)
+    :param cluster_dict: dict that contains the name of the cluster and the respective df that should be clustered
+    :param old_df: the original df with all buildings
+    :param region: str with region name
+    :return:
+    """
+
     new_df = pd.DataFrame()
     counter = 1
     count_ids = {}
     for name, n_cluster in number_of_cluster.items():
+        # normalize df before clustering
         normalized_df = normalize_df(cluster_dict[name])
         cluster_labels = kmeans_cluster(normalized_df, n_cluster)
 
         # add cluster labels to original df
-        df_orig = df.loc[df.loc[:, "ID_Building"].isin(cluster_dict[name].index), :]
+        df_orig = old_df.loc[old_df.loc[:, "ID_Building"].isin(cluster_dict[name].index), :]
         df_orig.loc[:, 'Cluster'] = cluster_labels
         # calculate a small dataframe where the buildings are reduced to
         df_grouped = df_orig.groupby("Cluster")
@@ -264,22 +276,21 @@ if __name__ == "__main__":
 
         new_df = pd.concat([new_df, small_df], axis=0)
 
-
         # show the heat maps of the cluster:
         normalized_df.loc[:, 'Cluster'] = cluster_labels
         cluster_means = normalized_df.groupby('Cluster').mean()
         show_heatmap(cluster_means, name)
 
     new_df.loc[:, "supply_temperature"] = 38
-    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component_Building.xlsx", index=False)
-    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component.xlsx", index=False)
+    save_ids_from_each_cluster(counted_ids=count_ids, region=region)
+    return new_df
 
-    reference_ids_df = pd.DataFrame.from_dict(count_ids, orient="index").T
-    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                              f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
 
+def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) -> None:
+    """
+    create the scenario start file for the flex model
+    :param new_building_df: the new_df with the clustered buildings as single buildings
+    """
     # create PV table for 5R1C model:
     pv_ids = {
         1: (0, "optimal"),  # kWp, orientation
@@ -291,7 +302,7 @@ if __name__ == "__main__":
         7: (15, "west"),
 
     }
-    pv_table = new_df.loc[:, ["ID_Building", "type"]].copy()
+    pv_table = new_building_df.loc[:, ["ID_Building", "type"]].copy()
     pv_table_long = pd.DataFrame()
     for building_type, group in pv_table.groupby("type"):
         if building_type == "SFH":
@@ -310,7 +321,7 @@ if __name__ == "__main__":
         "ID_HeatingElement": [1, 2, 3],
         "ID_Battery": [1, 2, 3],
         "ID_Boiler": [1, 2, 3, 4]
-    }  #  space cooling is done in db_init
+    }  # space cooling is done in db_init
     excluded_lists = pv_table_long.loc[:, ["ID_Building", "ID_PV", "type"]].values.tolist()
     first_excluded_key = "ID_Building"
     # create new dictionary where the excluded list is the first element of the first excluded key
@@ -340,28 +351,27 @@ if __name__ == "__main__":
     # big tanks, heating element only for MFH and small only for SFH:
     # Hot water tank
     df_start.drop(df_start.loc[
-                      (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HotWaterTank"] == 2), :
+                  (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HotWaterTank"] == 2), :
                   ].index, inplace=True)
     df_start.drop(df_start.loc[
-                      (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HotWaterTank"] == 3), :
+                  (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HotWaterTank"] == 3), :
                   ].index, inplace=True)
     # space heating tank
     df_start.drop(df_start.loc[
-                      (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 2), :
+                  (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 2), :
                   ].index, inplace=True)
     df_start.drop(df_start.loc[
-                      (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 3), :
+                  (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 3), :
                   ].index, inplace=True)
 
     # heating element
     df_start.drop(df_start.loc[
-                      (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HeatingElement"] == 2), :
+                  (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HeatingElement"] == 2), :
                   ].index, inplace=True)
     df_start.drop(df_start.loc[
-                      (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HeatingElement"] == 3), :
+                  (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HeatingElement"] == 3), :
                   ].index, inplace=True)
     df_start = df_start.reset_index(drop=True)
-
 
     final_pv = df_start.copy()
 
@@ -373,7 +383,7 @@ if __name__ == "__main__":
                                  "ID_SpaceHeatingTank",
                                  "ID_HeatingElement",
                                  "ID_Boiler"]].copy()
-    merged_df = merged_df.merge(new_df, on="ID_Building")
+    merged_df = merged_df.merge(new_building_df, on="ID_Building")
 
     scenario_start = merged_df.loc[:, ["ID_Building",
                                        "ID_PV",
@@ -386,3 +396,35 @@ if __name__ == "__main__":
     scenario_start.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
                             f"Scenario_start_{region}.xlsx", index=False)
 
+
+def main():
+    region = "Murcia"
+    df = pd.read_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+        f"OperationScenario_Component_Building_{region}_non_clustered.xlsx"
+    )
+    cluster_dict = create_cluster_dict(df)
+    number_of_cluster = {}  # use davies bouldin as reference
+    for sfh_or_mfh, cluster_df in cluster_dict.items():
+        number = find_number_of_cluster(min_number=5,
+                                        max_number=min([len(cluster_df) - 20, 30]),
+                                        df_norm=normalize_df(cluster_df),
+                                        sfh_mfh=sfh_or_mfh)
+        number_of_cluster[sfh_or_mfh] = number
+
+    new_df = create_new_building_df_from_cluster(number_of_cluster=number_of_cluster,
+                                                 cluster_dict=cluster_dict,
+                                                 old_df=df,
+                                                 region=region)
+    # save the new building df to the FLEX project:
+    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
+                    f"OperationScenario_Component_Building.xlsx", index=False)
+    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+                    f"OperationScenario_Component.xlsx", index=False)
+
+    # create the scenario table for the flex model
+    scenario_table_for_flex_model(new_building_df=new_df, region=region)
+
+
+if __name__ == "__main__":
+    main()
