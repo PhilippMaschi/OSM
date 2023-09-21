@@ -98,10 +98,10 @@ def load_raster_data(filepath, city_bounds):
 
 if __name__ == "__main__":
     path2file = Path(
-        r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data\GHS_BUILT_H_AGBH_E2018_GLOBE_R2023A_54009_100_V1_0_R3_C19\GHS_BUILT_H_AGBH_E2018_GLOBE_R2023A_54009_100_V1_0_R3_C19.tif"
+        r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data\GHS_BUILT_H_ANBH_E2018_GLOBE_R2023A_54009_100_V1_0_R3_C19\GHS_BUILT_H_ANBH_E2018_GLOBE_R2023A_54009_100_V1_0_R3_C19.tif"
     )
     gdf_example = load_raster_data(path2file, LOCATIONS["LEEUWARDEN"])
-    gdf_example.to_file("Leuwarden_heights.shp")
+    gdf_example.to_file("Leeuwarden_net_heights.shp")
     # Printing the first few rows of the GeoDataFrame for verification
     gdf_example.head()
 
