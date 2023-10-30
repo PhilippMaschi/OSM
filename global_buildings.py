@@ -39,7 +39,7 @@ def load_buildings_from_global_buildings(country: str, city: dict):
     data from .csv.gz to geojson for use in common GIS tools. You will
     need to install pandas, geopandas, and shapely.
 
-    turns out that murcia is not in the dataset available
+    https://github.com/microsoft/GlobalMLBuildingFootprints
 
     """
     dataset_links = pd.read_csv("https://minedbuildings.blob.core.windows.net/global-buildings/dataset-links.csv")
@@ -53,45 +53,12 @@ def load_buildings_from_global_buildings(country: str, city: dict):
         if within:
             gdf_cutted = gdf.cx[city["west"]: city["east"], city["south"]: city["north"]].copy()
             new_gdf = gdf_cutted.to_crs("epsg:3035")
-            new_gdf.to_file(Path("global_buildings") / f"{country}" / f"{city['city_name']}_{row.QuadKey}.geojson",
+            new_gdf.to_file(Path("input_data/global_buildings") / f"{country}" / f"{city['city_name']}_{row.QuadKey}.geojson",
                         driver="GeoJSON")
+            print(f"saved {city['city_name']}")
 
 
-def copernicus():
-    """
-    data from https://ghsl.jrc.ec.europa.eu/download.php?ds=builtH
-    :return:
-    """
 
-    # Path to the GeoTIFF file
-    tif_path = r'C:\Users\mascherbauer\PycharmProjects\OSM\copernicus_spain_heights.tif'
-
-    # Read the GeoTIFF file using rasterio
-    with rasterio.open(tif_path) as src:
-        # Read the raster data as a numpy array
-        raster_data = src.read(1)  # Assuming a single band GeoTIFF
-
-        # Retrieve the spatial information (e.g., CRS and transform)
-        crs = src.crs
-        transform = src.transform
-
-    # Create a list to store the polygon geometries
-    polygons = []
-
-    # Generate polygons from the raster data
-    i = 0
-    for geom, value in shapes(raster_data, transform=transform):
-        if value != 0:  # Skip empty polygons
-            polygons.append(shape(geom))
-            print(i)
-            i += 1
-
-    # Create a GeoDataFrame from the polygons
-    gdf = gpd.GeoDataFrame(geometry=polygons, crs=crs)
-
-    # Print the GeoDataFrame
-    print(gdf.head())
-    gdf.to_file(f"copernicus.geojson", driver="GeoJSON")
 
 
 def read_copernicus():
@@ -111,8 +78,10 @@ def read_copernicus():
 
 
 if __name__ == '__main__':
+    load_buildings_from_global_buildings("Spain", SUCINA)
     load_buildings_from_global_buildings("Netherlands", LEEUWARDEN)
     load_buildings_from_global_buildings("Netherlands", BAARD)
     load_buildings_from_global_buildings("Poland", KWIDZYN)
     load_buildings_from_global_buildings("Poland", RUMIA)
+
     # read_copernicus()
