@@ -317,10 +317,18 @@ class PVGIS:
 if __name__ == "__main__":
     # country_list = read_data_excel("NUTS2021")["nuts0"].unique()
     country_list = [
-        "Murcia"
+        "Murcia",
+        "Leeuwarden",
+        "Baard",
+        "Kwidzyn",
+        "Rumia"
     ]
     coordinates = [
-        (37.988, -1.124)
+        (37.988, -1.124),
+        (53.202, 5.795),
+        (53.142, 5.669),
+        (53.734, 18.933),
+        (54.581, 18.395)
     ]
     pv_gis = PVGIS()
     pv_gis.download_pv_gis(region_names=country_list,
