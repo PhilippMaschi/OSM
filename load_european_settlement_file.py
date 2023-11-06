@@ -1,4 +1,5 @@
 import rasterio
+from rasterio.warp import transform_bounds, reproject, Resampling
 import geopandas as gpd
 from rasterio.features import shapes
 from pathlib import Path
@@ -6,7 +7,8 @@ from rasterio.windows import from_bounds
 import pyproj
 from shapely.geometry import box
 from shapely.ops import transform
-# from main import LEEUWARDEN, SUCINA, MURCIA, BAARD, KWIDZYN, RUMIA
+import numpy as np
+from main import LEEUWARDEN, SUCINA, MURCIA, BAARD, KWIDZYN, RUMIA, BASE_EPSG
 
 
 def list_tif_files(directory: Path):
@@ -28,21 +30,13 @@ def transform_bounds_to_crs(bounds: dict, source_crs: str, target_crs: str) -> d
     transformed_box = transform(project, bounding_box)
 
     # Return the transformed bounds as a dictionary
-    return {
-        "west": transformed_box.bounds[0],
-        "south": transformed_box.bounds[1],
-        "east": transformed_box.bounds[2],
-        "north": transformed_box.bounds[3]
-    }
+    return transformed_box
 
 
-def is_window_inside_raster(src, window_bounds: dict) -> bool:
+def is_window_inside_raster(src, window_box: dict) -> bool:
     """Check if the window bounds are inside the raster's extent."""
-    raster_bounds = src.bounds
-    return not (window_bounds["west"] > raster_bounds.right or
-                window_bounds["east"] < raster_bounds.left or
-                window_bounds["north"] < raster_bounds.bottom or
-                window_bounds["south"] > raster_bounds.top)
+    raster_box = box(*src.bounds)
+    return raster_box.contains(window_box)
 
 
 def load_european_settlement_data(file_path: Path, city_bounds: dict):
@@ -54,16 +48,15 @@ def load_european_settlement_data(file_path: Path, city_bounds: dict):
     with rasterio.open(file_path) as src:
         print(f"loading {file_path}")
         raster_crs = src.crs
-        valid_bounds = transform_bounds_to_crs(city_bounds, "EPSG:4326", raster_crs)
+        valid_box = transform_bounds_to_crs(city_bounds, "EPSG:4326", raster_crs)
         # Check if the window is inside the raster's extent. If not skip the city
-        if not is_window_inside_raster(src, valid_bounds):
+        if not is_window_inside_raster(src, valid_box):
             print(f"Window for city is outside the raster's extent. Skipping extraction for {city_bounds['city_name']}.")
             return gpd.GeoDataFrame()
 
         # Get the window corresponding to the transformed bounds
-        window = from_bounds(valid_bounds["west"], valid_bounds["south"],
-                             valid_bounds["east"], valid_bounds["north"], src.transform)
-
+        window = from_bounds(*valid_box.bounds, src.transform)
+        window_transform = rasterio.windows.transform(window, src.transform)
         # Read only the windowed raster data
         image = src.read(window=window)
         mask = image != src.nodata
@@ -71,15 +64,16 @@ def load_european_settlement_data(file_path: Path, city_bounds: dict):
         # Extract features from the raster data
         results = (
             {'properties': {'value': v}, 'geometry': s}
-            for i, (s, v) in enumerate(shapes(image, mask=mask, transform=src.transform))
+            for i, (s, v) in enumerate(shapes(image, mask=mask, transform=window_transform))
         )
         geoms = list(results)
 
     # Convert to a GeoDataFrame
     gdf = gpd.GeoDataFrame.from_features(geoms)
     gdf.crs = raster_crs
-    gdf = gdf.to_crs("EPSG:4326")
-    return gdf
+    gdf_return = gdf.to_crs("epsg:3035")
+
+    return gdf_return
 
 
 def main(cities: list):
@@ -101,22 +95,27 @@ def main(cities: list):
             gdf = load_european_settlement_data(filepath, city)
 
             if not gdf.empty:
-                gdf.to_file(Path(f"input_data/GHS data") / f"{city['city_name']}.gpkg", driver="GPKG")
+                save_gdf_to_gpkg(gdf=gdf, filepath=Path(f"input_data/GHS data") / f"{city['city_name']}.gpkg")
                 print(f"saved {city} as gpkg file in GHS data")
 
 
+def save_gdf_to_gpkg(gdf, filepath: Path):
+    """Save a GeoDataFrame to a .gpkg file, overwriting if the file already exists."""
+    # Check if the file exists
+    if filepath.exists():
+        filepath.unlink()  # remove file
+
+    # Save the GeoDataFrame to .gpkg
+    gdf.to_file(filepath, driver="GPKG")
 
 
 
 if __name__ == "__main__":
     # this function takes forever as it iterates through all of the 3 countries and searches for the cities. Only run
     # it when you loose the data on the areas. Data is saved in input_data/GHS data
-    BAARD = {"north": 53.1620856552012,
-             "south": 53.1314293502190,
-             "east": 5.68494449734352,
-             "west": 5.64167343762892,
-             "city_name": "Baard"}
-    main([BAARD])
+
+    BASE_EPSG = 4326
+    main([LEEUWARDEN])
     # main([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
 
 
