@@ -1,5 +1,4 @@
 import rasterio
-from rasterio.warp import transform_bounds, reproject, Resampling
 import geopandas as gpd
 from rasterio.features import shapes
 from pathlib import Path
@@ -7,7 +6,6 @@ from rasterio.windows import from_bounds
 import pyproj
 from shapely.geometry import box
 from shapely.ops import transform
-import numpy as np
 from main import LEEUWARDEN, SUCINA, MURCIA, BAARD, KWIDZYN, RUMIA, BASE_EPSG
 
 
@@ -105,6 +103,7 @@ def copernicus_data_10m_resolution_building_heights(cities: list):
             save_gdf_to_gpkg(gdf=gdf, filepath=Path(f"input_data/copernicus_r_3035_10_m_ua-bh-2012_p_2012_v03_r00") / f"{city['city_name']}.gpkg")
             print(f"saved {city} as gpkg file in copernicus folder")
 
+
 def save_gdf_to_gpkg(gdf, filepath: Path):
     """Save a GeoDataFrame to a .gpkg file, overwriting if the file already exists."""
     # Check if the file exists
@@ -118,13 +117,7 @@ def save_gdf_to_gpkg(gdf, filepath: Path):
     gdf.to_file(filepath, driver="GPKG")
 
 
-
 if __name__ == "__main__":
-    # this function takes forever as it iterates through all of the 3 countries and searches for the cities. Only run
-    # it when you loose the data on the areas. Data is saved in input_data/GHS data
-
-    # BASE_EPSG = 4326
-    # main([LEEUWARDEN])
     global_human_settlement_data([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
 
     copernicus_data_10m_resolution_building_heights([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
