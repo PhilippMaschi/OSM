@@ -10,14 +10,15 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
 import h5py
-from load_invert_data import get_number_of_buildings_from_invert
+from load_invert_data import get_number_of_buildings_from_invert_spain
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import warnings
 
 # Suppress the FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
-
+# Coordinates are EPSG: 4326 !!! WGS84
+BASE_EPSG = 4326
 LEEUWARDEN = {"north": 53.2178674080337,
               "south": 53.1932515262881,
               "east": 5.82625369878255,
@@ -98,11 +99,9 @@ USO_PRINCIPAL_TO_INVERT_TYPE = {
 }
 
 
-
 def get_osm_gdf(city: dict):
-    buildings = ox.geometries_from_bbox(city["north"], city["south"], city["east"], city["west"],
-                                        tags={'building': True})
-    return buildings
+    gdf = gpd.read_file(Path("input_data/OpenStreetMaps") / f"{city['city_name']}.gpkg")
+    return gdf
 
 
 def get_osm_building_numbers(city: dict, big_df: pd.DataFrame):
@@ -123,9 +122,9 @@ def load_invert_spain_data():
     return df
 
 
-def get_urban3r_murcia_gdf():
+def get_urban3r_murcia_gdf(region: dict):
     murcia_df = gpd.read_file(Path(r"input_data\30030.gpkg"))
-    df = murcia_df.cx[MURCIA["west"]: MURCIA["east"], MURCIA["south"]: MURCIA["north"]].copy()
+    df = murcia_df.cx[region["west"]: region["east"], region["south"]: region["north"]].copy()
     df["number_of_buildings"] = 1
     print(f"URBAN3R buildings in database total: {df['number_of_buildings'].sum()}")
     df["uso_principal"] = df["uso_principal"].replace(TRANSLATION_DICT)
@@ -135,15 +134,14 @@ def get_urban3r_murcia_gdf():
     return gdf
 
 
-def load_urban3r_murcia() -> gpd.GeoDataFrame:
-    gdf = get_urban3r_murcia_gdf()
+def load_urban3r_murcia(region: dict) -> gpd.GeoDataFrame:
+    gdf = get_urban3r_murcia_gdf(region)
     # estimate the building height, 0 means only one floor --> 3m height?
     gdf["building_height"] = (gdf["altura_maxima"] + 1) * 3
     # get building footprint
     gdf["building_footprint"] = gdf.area
     # volume of the buildings: area * height
     gdf["building_volume"] = gdf["building_footprint"] * gdf["building_height"]
-    # todo wenn das mit länge und breite nicht hin haut aus der fläche und dem verhältnis von invert extrahieren
 
     # habe nicht die richtigen epsg um die koordinaten zu transformieren, darum nehme ich das längen und Breiten
     # Verhältnis
@@ -156,150 +154,29 @@ def load_urban3r_murcia() -> gpd.GeoDataFrame:
     return gdf
 
 
-def compare_footprints(df, df_invert, osm):
-    gdf = df.to_crs("epsg:3035").copy()
-    building_areas = gdf.area
-    df["area"] = building_areas
-
-    df_invert["area"] = df_invert["length_of_building"] * df_invert["width_of_building"]
-
-    df_invert_residential = df_invert.query("building_categories_index == 1")
-    df_residential = df.query("uso_principal == 'residential'")
-
-    fig = plt.figure()
-    ax = plt.gca()
-    ax.boxplot([df_residential["area"], df_invert_residential["area"], osm["area"]],
-               labels=["urban3R", "Invert", "OSM"])
-    ax.set_ylabel("footprint (m2)")
-    plt.savefig("figures/footprint_comparison_uerban3R-invert_Murcia.png")
-    plt.show()
-
-
-def compare_gross_volume(urban3r_df, invert_df, osm):
-    df_invert_residential = invert_df.query("building_categories_index == 1")
-    df_residential = urban3r_df.query("uso_principal == 'residential'")
-    fig = plt.figure()
-    ax = plt.gca()
-    ax.boxplot([df_residential["building_volume"], df_invert_residential["grossvolume"]], labels=["urban3R", "Invert"])
-    ax.set_ylabel("grossvolume (m3)")
-    plt.savefig("figures/grossvolume_comparison_uerban3R-invert_Murcia.png")
-    plt.show()
-
-
-def compare_volume_to_surface_ratio(urban3r_df, invert_df):
-    df_invert_residential = invert_df.query("building_categories_index == 1")
-    df_residential = urban3r_df.query("uso_principal == 'residential'")
-    # calculate ratio:
-    df_invert_residential["surface area"] = df_invert_residential["total_vertical_surface_area"] + \
-                                            df_invert_residential["grossfloor_area"]
-    df_invert_residential["volume surface ratio"] = df_invert_residential["grossvolume"] / df_invert_residential[
-        "surface area"]
-
-    fig = plt.figure()
-    ax = plt.gca()
-    ax.boxplot([df_residential["volume surface ratio"], df_invert_residential["volume surface ratio"]],
-               labels=["urban3R", "Invert"])
-    ax.set_ylabel("volume surface ratio (m)")
-    plt.savefig("figures/volume-surface-ratio_comparison_uerban3R-invert_Murcia.png")
-    plt.show()
-
-
-def compare_norm_heating_demand(urban3r_df, invert_df):
-    df_invert_residential = invert_df.query("building_categories_index == 1")
-    df_residential = urban3r_df.query("uso_principal == 'residential'")
-
-    fig = plt.figure()
-    ax = plt.gca()
-    ax.boxplot([df_residential["demanda_calefaccion"], df_invert_residential["hwb_norm"]], labels=["urban3R", "Invert"])
-    ax.set_ylabel("norm heat demand (kWh/m2)")
-    plt.savefig("figures/norm_heat_demand_comparison_uerban3R-invert_Murcia.png")
-    plt.show()
-
-
-def compare_urban3r_invert():
-    filtered_gdf = load_urban3r_murcia()
-    osm = get_osm_gdf(MURCIA)
-    osm_gdf = osm.to_crs("epsg:3035").copy()  # 4326, 3035, 32632
-    osm["area"] = osm_gdf.area
-    # todo for osm the building height still has to be included
-
-    compare_footprints(filtered_gdf, df_invert=load_invert_spain_data(), osm=osm)
-    compare_gross_volume(filtered_gdf, invert_df=load_invert_spain_data(), osm=osm)
-    compare_volume_to_surface_ratio(filtered_gdf, invert_df=load_invert_spain_data())
-    compare_norm_heating_demand(filtered_gdf, invert_df=load_invert_spain_data())
-
-
-def show_murcia_data():
-    murcia_df = gpd.read_file(Path(r"input_data\30030.gpkg"))
-    # create a Shapely box object from the bounding box coordinates
-    bbox = box(MURCIA["west"], MURCIA["south"], MURCIA["east"], MURCIA["north"])
-    filtered_gdf = murcia_df.cx[MURCIA["west"]: MURCIA["east"], MURCIA["south"]: MURCIA["north"]].copy()
-    filtered_gdf["number_of_buildings"] = 1
-    filtered_gdf["uso_principal"] = filtered_gdf["uso_principal"].replace(TRANSLATION_DICT)
-    murcia_numbers = filtered_gdf.groupby("uso_principal")["number_of_buildings"].sum().reset_index()
-
-    # get OSM murcia data
-    osm_df = pd.DataFrame(columns=["building", "city"])
-    osm_df = get_osm_building_numbers(MURCIA, osm_df)
-    osm_df["number_of_buildings"] = 1
-    osm_numbers = osm_df.groupby("building")["number_of_buildings"].sum().reset_index()
-    common_names = set(osm_df['building']).intersection(set(murcia_numbers['uso_principal']))
-
-    murcia = murcia_numbers.query(f"uso_principal in {list(common_names)}")
-    # define the percentage of the different buildings:
-    murcia["percentage"] = murcia["number_of_buildings"] / murcia["number_of_buildings"].sum()
-    murcia = murcia.reset_index(drop=True)
-
-    # add the buildings that are configured as "yes" to the number of buildings based on the percentage of murcia buildings
-    osm = osm_numbers.query(f"building in {list(common_names)}").reset_index(drop=True)
-    osm["number_of_buildings"] = osm["number_of_buildings"] + float(
-        osm_numbers.query("building == 'yes'")["number_of_buildings"]) * murcia["percentage"]
-
-    murcia["source"] = "urban3r"
-    osm["source"] = "osm"
-    df = pd.concat([murcia.drop(columns=["percentage"]).rename(columns={"uso_principal": "building"}), osm], axis=0)
-
-    fig = px.bar(
-        data_frame=df,
-        x="building",
-        y="number_of_buildings",
-        color="source",
-        barmode="group",
-    )
-    fig.show()
-
-
-
-def merge_osm_urban3r(output_filename: Path) -> None:
-    urban3r = get_urban3r_murcia_gdf()
+def merge_osm_urban3r(output_filename: Path, region: dict) -> None:
+    urban3r = get_urban3r_murcia_gdf(region)
     urban3r["id_urban3r"] = np.arange(urban3r.shape[0])
-    urban3r.to_file("urban3r_murcia.shp", driver="ESRI Shapefile")
-    osm = get_osm_gdf(MURCIA)
+    urban3r.to_file(f"urban3r_{region['city_name']}.shp", driver="ESRI Shapefile")
+    osm = get_osm_gdf(region)
     osm_gdf = osm.to_crs("epsg:3035").copy()
     osm_gdf["id_osm"] = np.arange(osm_gdf.shape[0])
-    # spalten mit listen löschen und dann löschen
-    osm_gdf = osm_gdf.drop(columns=["nodes"])
-    # osm_gdf.to_file("osm_murcia.shp", driver="ESRI Shapefile")
 
     # take the representative points from OSM and check how many of them are inside the shapes of urban3r
     osm_help = osm_gdf.copy()
     osm_help["help_geometry"] = osm_help["geometry"]
     osm_help["geometry"] = osm_help.representative_point()
     merged = gpd.sjoin(urban3r, osm_help, how='inner', op='contains')
-    merged_urban3r_geom = merged.drop(columns=["help_geometry", "ways"])
-    # merged_urban3r_geom.to_file("merged_urban_geom.shp", driver="ESRI Shapefile")
 
     # take the same dataset and use the osm geometry:
-    merged_osm_geom = merged.drop(columns=["geometry", "ways"]).rename(columns={"help_geometry": "geometry"})
+    if "ways" in merged.columns:
+        merged_osm_geom = merged.drop(columns=["geometry", "ways"]).rename(columns={"help_geometry": "geometry"})
+    else:
+        merged_osm_geom = merged.drop(columns=["geometry"]).rename(columns={"help_geometry": "geometry"})
     merged_osm_geom = merged_osm_geom[merged_osm_geom.geometry.type.isin(["Polygon"])]
     merged_osm_geom.to_file(output_filename, driver="ESRI Shapefile")
     print(f"OSM number of buildings total: {osm_gdf.shape[0]}")
     print(f"OSM building number after merging: {merged_osm_geom.shape[0]}")
-
-    # in most cases the osm representation of the building shape is more accurate but in some cases
-    # only exception are row houses that are divided in Urban3r but are a single building in OSM
-    # I don't correct this mistake because the row houses have aprox the same heating demand and are built in the same
-    # century
     return None
 
 
@@ -366,7 +243,7 @@ def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.Data
 
 def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame):
     # load invert table for Sevilla buildings
-    df_invert = get_number_of_buildings_from_invert()
+    df_invert = get_number_of_buildings_from_invert_spain()
 
     df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
                                               df_invert.loc[:, "construction_period_end"].astype(str)
@@ -593,12 +470,13 @@ def convert_to_float(column):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    city_name = "Murcia"
+    region = SUCINA
+    city_name = region["city_name"]
     country_name = "Spain"
-    shp_filename = Path("merged_osm_geom.shp")
-    extended_shp_filename = Path("merged_osm_geom_extended.shp")
+    shp_filename = Path(f"merged_osm_geom_{city_name}.shp")
+    extended_shp_filename = Path(f"merged_osm_geom_extended_{city_name}.shp")
     # merge the dataframes and safe the shapefile to shp_filename:
-    merge_osm_urban3r(output_filename=shp_filename)
+    merge_osm_urban3r(output_filename=shp_filename, region=region)
     # add the adjacent length and circumference with mosis wonder:
     big_df = calc_premeter(input_lyr=shp_filename,
                            output_lyr=extended_shp_filename, )
