@@ -39,10 +39,11 @@ def is_window_inside_raster(src, window_box: dict) -> bool:
     return raster_box.contains(window_box)
 
 
-def load_european_settlement_data(file_path: Path, city_bounds: dict):
+def load_gdf_from_tif_file(file_path: Path, city_bounds: dict):
     """
     data from https://ghsl.jrc.ec.europa.eu/download.php?ds=builtH
-    :return:
+        Returns:
+    - gdf: GeoDataFrame containing the extracted features
     """
     # Read the GeoTIFF file using rasterio
     with rasterio.open(file_path) as src:
@@ -75,34 +76,43 @@ def load_european_settlement_data(file_path: Path, city_bounds: dict):
     return gdf_return
 
 
-def main(cities: list):
+def global_human_settlement_data(cities: list):
     """
     Load raster data for a specific city's bounds and extract features.
     https://ghsl.jrc.ec.europa.eu/download.php?ds=builtH
     Parameters:
-    - filepath: Path to the raster file
-    - city_bounds: Dictionary containing the boundary coordinates of the city
-
-    Returns:
-    - gdf: GeoDataFrame containing the extracted features
+    - cities: Dictionary containing the boundary coordinates of the city
     """
     ghs_files = list_tif_files(Path("input_data/GHS data"))
     # Extract the reprojected bounds
     for filepath in ghs_files:
         for city in cities:
             print(f"trying to extract {city['city_name']}")
-            gdf = load_european_settlement_data(filepath, city)
+            gdf = load_gdf_from_tif_file(filepath, city)
 
             if not gdf.empty:
                 save_gdf_to_gpkg(gdf=gdf, filepath=Path(f"input_data/GHS data") / f"{city['city_name']}.gpkg")
                 print(f"saved {city} as gpkg file in GHS data")
 
 
+def copernicus_data_10m_resolution_building_heights(cities: list):
+    input_file = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data\copernicus_r_3035_10_m_ua-bh-2012_p_2012_v03_r00\GTiff\Building_Height_UA2012_WM_10m.tif")
+    for city in cities:
+        print(f"trying to extract {city['city_name']}")
+        gdf = load_gdf_from_tif_file(input_file, city)
+
+        if not gdf.empty:
+            save_gdf_to_gpkg(gdf=gdf, filepath=Path(f"input_data/copernicus_r_3035_10_m_ua-bh-2012_p_2012_v03_r00") / f"{city['city_name']}.gpkg")
+            print(f"saved {city} as gpkg file in copernicus folder")
+
 def save_gdf_to_gpkg(gdf, filepath: Path):
     """Save a GeoDataFrame to a .gpkg file, overwriting if the file already exists."""
     # Check if the file exists
     if filepath.exists():
-        filepath.unlink()  # remove file
+        try:
+            filepath.unlink()  # remove file
+        except:
+            print(f"file was not saved because it is used in another programm")
 
     # Save the GeoDataFrame to .gpkg
     gdf.to_file(filepath, driver="GPKG")
@@ -115,7 +125,11 @@ if __name__ == "__main__":
 
     # BASE_EPSG = 4326
     # main([LEEUWARDEN])
-    main([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
+    global_human_settlement_data([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
+
+    copernicus_data_10m_resolution_building_heights([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
+
+
 
 
 
