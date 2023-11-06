@@ -34,8 +34,8 @@ def load_buildings_from_global_buildings(country: str, city: dict):
         if within:
             gdf_cutted = gdf.cx[city["west"]: city["east"], city["south"]: city["north"]].copy()
             new_gdf = gdf_cutted.to_crs("epsg:3035")
-            new_gdf.to_file(Path("input_data/global_buildings") / f"{city['city_name']}_{row.QuadKey}.geojson",
-                            driver="GeoJSON")
+            new_gdf.to_file(Path("input_data/global_buildings") / f"{city['city_name']}_{row.QuadKey}.gpkg",
+                            driver="GPKG")
             print(f"saved {city['city_name']}")
 
 
