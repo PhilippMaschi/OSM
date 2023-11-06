@@ -48,7 +48,7 @@ def load_european_settlement_data(file_path: Path, city_bounds: dict):
     with rasterio.open(file_path) as src:
         print(f"loading {file_path}")
         raster_crs = src.crs
-        valid_box = transform_bounds_to_crs(city_bounds, "EPSG:4326", raster_crs)
+        valid_box = transform_bounds_to_crs(city_bounds, BASE_EPSG, raster_crs)
         # Check if the window is inside the raster's extent. If not skip the city
         if not is_window_inside_raster(src, valid_box):
             print(f"Window for city is outside the raster's extent. Skipping extraction for {city_bounds['city_name']}.")
@@ -72,7 +72,6 @@ def load_european_settlement_data(file_path: Path, city_bounds: dict):
     gdf = gpd.GeoDataFrame.from_features(geoms)
     gdf.crs = raster_crs
     gdf_return = gdf.to_crs("epsg:3035")
-
     return gdf_return
 
 
@@ -114,9 +113,9 @@ if __name__ == "__main__":
     # this function takes forever as it iterates through all of the 3 countries and searches for the cities. Only run
     # it when you loose the data on the areas. Data is saved in input_data/GHS data
 
-    BASE_EPSG = 4326
-    main([LEEUWARDEN])
-    # main([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
+    # BASE_EPSG = 4326
+    # main([LEEUWARDEN])
+    main([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
 
 
 
