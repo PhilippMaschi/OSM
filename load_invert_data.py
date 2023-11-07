@@ -230,7 +230,7 @@ def filter_only_sevilla_buildings(df: pd.DataFrame):
     return df.loc[mask, :]
 
 
-def get_number_of_buildings_from_invert() -> pd.DataFrame:
+def get_number_of_buildings_from_invert_spain() -> pd.DataFrame:
     hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\001_buildings_spain.hdf5")
     bc_df = hdf5_to_pandas(hdf5_f, f"BC_{2020}", BUILDING_CLASS_COLUMNS)
     bssh_df = hdf5_to_pandas(hdf5_f, f"BSSH_{2020}", BUILDING_SEGMENT_COLUMNS)
@@ -281,5 +281,5 @@ def get_number_of_buildings_from_invert() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    get_number_of_buildings_from_invert()
+    get_number_of_buildings_from_invert_spain()
 
