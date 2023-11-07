@@ -1,6 +1,7 @@
 import osmnx as ox
 from pathlib import Path
 from main import LEEUWARDEN, SUCINA, MURCIA, BAARD, KWIDZYN, RUMIA, BASE_EPSG
+import geopandas as gpd
 
 
 def get_osm_gdf(city: dict):
@@ -34,8 +35,22 @@ def save_gdf_to_gpkg(gdf, filepath: Path):
     gdf.to_file(filepath, driver="GPKG")
 
 
+def load_urban3R_and_save():
+    file = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data\Urban3R") / "30030.gpkg"
+    gdf = gpd.read_file(file)
+    if gdf.crs.to_epsg() != BASE_EPSG:
+        gdf = gdf.to_crs(BASE_EPSG)
+    sucina = gdf.cx[SUCINA["west"]: SUCINA["east"], SUCINA["south"]: SUCINA["north"]].copy()
+    murcia = gdf.cx[MURCIA["west"]: MURCIA["east"], MURCIA["south"]: MURCIA["north"]].copy()
+
+    sucina.to_file(Path(r"input_data/Urban3R") / f"Sucina.gpkg", driver="GPKG")
+    murcia.to_file(Path(r"input_data/Urban3R") / f"Murcia.gpkg", driver="GPKG")
+
+
+
 if __name__ == "__main__":
     cities = [LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA]
+    load_urban3R_and_save()
     osm_data(cities)
 
 
