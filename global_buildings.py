@@ -3,7 +3,7 @@ import geopandas as gpd
 from shapely.geometry import box, shape
 from main import LEEUWARDEN, MURCIA, KWIDZYN, BAARD, RUMIA, SUCINA
 from pathlib import Path
-
+from collections import Counter
 
 def check_if_buildings_are_in_area(gdf: gpd.GeoDataFrame, city: dict):
     bbox = box(city["west"], city["south"], city["east"], city["north"])
@@ -39,6 +39,32 @@ def load_buildings_from_global_buildings(country: str, city: dict):
             print(f"saved {city['city_name']}")
 
 
+def delete_numbers_in_file_names():
+    # if a city has two files we need to merge the files before renaming:
+    paths = [file for file in Path("input_data/global_buildings").glob("*.gpkg")]
+    remove_digits = str.maketrans('', '', '0123456789')
+    file_names = [f.stem.translate(remove_digits).replace('_', '') for f in paths]
+    if len(file_names) != len(set(file_names)):
+        # doubles exist and we have to merge the dataframes
+        counts = Counter(file_names)
+        duplicates = [item for item, count in counts.items() if count > 1]
+        gdfs = []
+        for duplicate in duplicates:
+            double_files = [file for file in paths if duplicate in file.stem]
+            # load the dataframes and merge them
+            for f in double_files:
+                gdfs.append(gpd.read_file(f))
+                f.unlink()
+
+        gdf_concatenated = pd.concat(gdfs, ignore_index=True)
+        gdf_concatenated.to_file(Path(r"input_data/global_buildings") / f"{duplicates[0]}.gpkg", driver="GPKG")
+
+
+    new_paths = [file for file in Path("input_data/global_buildings").glob("*.gpkg")]
+    for file in new_paths:
+        new_name = f"{file.stem.translate(remove_digits).replace('_', '')}.gpkg"
+        file.rename(file.parent / new_name)
+
 if __name__ == '__main__':
     # this code takes a while as it downloads all the data and then checks if the region is within the downloaded
     # data.
@@ -48,4 +74,6 @@ if __name__ == '__main__':
     load_buildings_from_global_buildings("Netherlands", BAARD)
     load_buildings_from_global_buildings("Poland", KWIDZYN)
     load_buildings_from_global_buildings("Poland", RUMIA)
+
+    delete_numbers_in_file_names()
 
