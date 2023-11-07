@@ -1,7 +1,5 @@
 import numpy as np
 import numpy.random
-import osmapi
-import osmnx as ox
 import pandas as pd
 from shapely.geometry import shape
 import geopandas as gpd
@@ -123,8 +121,8 @@ def load_invert_spain_data():
 
 
 def get_urban3r_murcia_gdf(region: dict):
-    murcia_df = gpd.read_file(Path(r"input_data\30030.gpkg"))
-    df = murcia_df.cx[region["west"]: region["east"], region["south"]: region["north"]].copy()
+    murcia_df = gpd.read_file(Path(r"input_data\Urban3R") / f"{region['city_name']}.gpkg")
+    df = murcia_df.copy()
     df["number_of_buildings"] = 1
     print(f"URBAN3R buildings in database total: {df['number_of_buildings'].sum()}")
     df["uso_principal"] = df["uso_principal"].replace(TRANSLATION_DICT)
