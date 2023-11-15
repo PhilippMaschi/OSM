@@ -118,7 +118,7 @@ def save_gdf_to_gpkg(gdf, filepath: Path):
 
 
 if __name__ == "__main__":
-    global_human_settlement_data([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
+    global_human_settlement_data([KWIDZYN, LEEUWARDEN, BAARD, MURCIA, SUCINA, RUMIA])
 
     copernicus_data_10m_resolution_building_heights([LEEUWARDEN, BAARD, MURCIA, SUCINA, KWIDZYN, RUMIA])
 
