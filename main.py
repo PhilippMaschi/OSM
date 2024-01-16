@@ -8,10 +8,12 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
 import h5py
-from load_invert_data import get_number_of_buildings_from_invert_spain
+from load_invert_data import get_number_of_buildings_from_invert
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import warnings
+import random
+from datetime import datetime, timedelta
 
 # Suppress the FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -239,9 +241,10 @@ def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.Data
     return selection
 
 
-def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame):
+def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_city_filter_name: str):
     # load invert table for Sevilla buildings
-    df_invert = get_number_of_buildings_from_invert_spain()
+    df_invert = get_number_of_buildings_from_invert(invert_city_filter_name=invert_city_filter_name,
+                                                    country=country)
 
     df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
                                               df_invert.loc[:, "construction_period_end"].astype(str)
@@ -343,21 +346,26 @@ def calculate_5R1C_necessary_parameters(df):
 
 def create_boiler_excel(df: pd.DataFrame,
                         city_name: str):
-    translation_dict = {
-        "electricity": "Electric",
-        "heat pump air": "Air_HP",
-        "heat pump ground": "Ground_HP",
-        "no heating": "no heating",
-        "coal": "solids",
-        "wood": "solids",
-        "oil": "liquids",
-        "gas": "gases",
-        "district heating": "district heating"
+    # translation_dict = {
+    #     "electricity": "Electric",
+    #     "heat pump air": "Air_HP",
+    #     "heat pump ground": "Ground_HP",
+    #     "no heating": "no heating",
+    #     "coal": "solids",
+    #     "wood": "solids",
+    #     "oil": "liquids",
+    #     "gas": "gases",
+    #     "district heating": "district heating"
+    # }
+    boiler_dict = {
+        "ID_Boiler": [1, 2, 3, 4, 5],
+        "type": ["Electric", "Air_HP", "Ground_HP", "no heating", "gas"]
     }
-    boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
-    boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
-    boiler.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
-    boiler.to_excel(
+    boiler_df = pd.DataFrame(boiler_dict)
+    # boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
+    # boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
+    boiler_df.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
+    boiler_df.to_excel(
         Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
         f"OperationScenario_Component_Boiler_{city_name}.xlsx"
     )
@@ -434,31 +442,100 @@ def appliance_electricity_demand_per_person_EU(country: str) -> float:
     return consumption / population * 1_000 * 1_000 * 1_000
 
 
+def generate_heating_schedule():
+    # Constants
+    start_afternoon = 17  # 5 PM
+    end_afternoon = 22  # 10 PM
+    start_morning = 6  # 6 AM
+    end_morning = 9  # 9 AM
+
+    # Initialize all hours to 0 (heating off)
+    schedule = [0] * 8760
+
+    for day in range(365):
+        start_index = day * 24
+        # Determine morning heating
+        if random.random() < 0.5:  # 50% chance
+            morning_heating_hour = random.randint(start_morning, end_morning - 1)
+            morning_heating_index = start_index + morning_heating_hour - 1
+            schedule[morning_heating_index] = 1
+
+        # Determine afternoon heating
+        heating_duration = random.randint(1, 3)
+        afternoon_heating_start = random.randint(start_afternoon, end_afternoon - heating_duration)
+
+        for i in range(heating_duration):
+            afternoon_heating_index = start_index + afternoon_heating_start + i - 1
+            schedule[afternoon_heating_index] = 1
+
+    return schedule
+
+
+def create_people_at_home_profiles(country: str, city_name: str):
+    id_hour = np.arange(1, 8761)
+    people_at_home_profile_1 = np.full(shape=(8760,), fill_value=1)
+    # the second profile is used for people who have no heating
+    people_at_home_profile_2 = np.full(shape=(8760,), fill_value=1)  # target temp is 10°C so this doesnt matter
+
+    # all other profiles are used for people who have direct electric heating and use it only for ~3 hours when
+    # they come home and possibly for 1 hour in the morning. The heating will be turned on between 5 and 10 in the night
+    # randomly chosen for a random time (1-3) hours. In the morning the heating will be turned on randomly between,
+    # 6 and 9 o'clock with a 30% probability every day.
+    # create 50 different profiles:
+
+    # create excel OperationScenario_BehaviorProfile:
+    df = pd.DataFrame(data=id_hour, columns=["id_hour"])
+    df["people_at_home_profile_1"] = people_at_home_profile_1
+    df["people_at_home_profile_2"] = people_at_home_profile_2
+
+    for i in range(50):
+        df[f"people_at_home_profile_{i+3}"] = generate_heating_schedule()
+
+    hot_water_profile = pd.read_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
+        "HotWaterProfile.xlsx"
+    )
+    df["hot_water_demand_profile_1"] = hot_water_profile
+    appliance_profile = pd.read_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
+        "Appliance_Profile.xlsx"
+    )
+    df["appliance_electricity_demand_profile_1"] = appliance_profile
+    df["vehicle_hat_home_profile_1"] = np.zeros(shape=(8760,))
+    df["vehicle_distance_profile_1"] = np.zeros(shape=(8760,))
+
+    df.to_excel(
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
+        f"OperationScenario_BehaviorProfile_{country}.xlsx", index=False
+    )
+
+
 def create_behavior_excel(country: str):
     behavior_dict = {
-        "ID_Behavior": 1,
-        "id_people_at_home_profile": 1,
-        "target_temperature_at_home_max": 27,
-        "target_temperature_at_home_min": 20,
-        "target_temperature_not_at_home_max": 27,
-        "target_temperature_not_at_home_min": 20,
-        "shading_solar_reduction_rate": 0.5,
-        "shading_threshold_temperature": 30,
-        "temperature_unit": "°C",
-        "id_hot_water_demand_profile": 1,
-        "hot_water_demand_annual": specific_DHW_per_person_EU(country),
-        "hot_water_demand_unit": "Wh/person",
-        "id_appliance_electricity_demand_profile": 1,
-        "appliance_electricity_demand_annual": appliance_electricity_demand_per_person_EU(country),
-        "appliance_electricity_demand_unit": "Wh/person",
-        "id_vehicle_at_home_profile": 1,
-        "id_vehicle_distance_profile": 1,
+        "ID_Behavior": [1, 2, 3],
+        "id_people_at_home_profile_min": [1, 2, 3],
+        "id_people_at_home_profile_max": [1, 2, 53],
+        "target_temperature_at_home_max": [27, 27, 27],
+        "target_temperature_at_home_min": [20, 10, 18],
+        "target_temperature_not_at_home_max": [27, 27, 27],
+        "target_temperature_not_at_home_min": [20, 10, 10],
+        "shading_solar_reduction_rate": [0.5, 0.5, 0.5],
+        "shading_threshold_temperature": [30, 30, 30],
+        "temperature_unit": ["°C", "°C", "°C"],
+        "id_hot_water_demand_profile": [1, 1, 1],
+        "hot_water_demand_annual": [specific_DHW_per_person_EU(country), specific_DHW_per_person_EU(country), specific_DHW_per_person_EU(country)],
+        "hot_water_demand_unit": ["Wh/person", "Wh/person", "Wh/person"],
+        "id_appliance_electricity_demand_profile": [1, 1, 1],
+        "appliance_electricity_demand_annual": [appliance_electricity_demand_per_person_EU(country), appliance_electricity_demand_per_person_EU(country), appliance_electricity_demand_per_person_EU(country)],
+        "appliance_electricity_demand_unit": ["Wh/person", "Wh/person", "Wh/person"],
+        "id_vehicle_at_home_profile": [1, 1, 1],
+        "id_vehicle_distance_profile": [1, 1, 1],
     }
     behavior = pd.DataFrame.from_dict(behavior_dict, orient="index").T
-    behavior.to_excel(Path(r"output_data") / f"OperationScenario_Component_Behavior_{country}.xlsx")
+    behavior.to_excel(Path(r"output_data") / f"OperationScenario_Component_Behavior_{country}.xlsx", index=False)
     behavior.to_excel(
         Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-                      f"OperationScenario_Component_Behavior_{country}.xlsx"
+                      f"OperationScenario_Component_Behavior_{country}.xlsx", index=False
     )
 
 
@@ -468,7 +545,7 @@ def convert_to_float(column):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    region = SUCINA
+    region = MURCIA
     city_name = region["city_name"]
     country_name = "Spain"
     shp_filename = Path(f"merged_osm_geom_{city_name}.shp")
@@ -480,7 +557,7 @@ if __name__ == '__main__':
                            output_lyr=extended_shp_filename, )
 
     # combine the Urban3R information with the Invert database
-    combined_df = add_invert_data_to_gdf_table(big_df)
+    combined_df = add_invert_data_to_gdf_table(big_df, country=country_name, invert_city_filter_name="Sevilla")
 
     # turn them to numeric
     numeric_df = combined_df.apply(convert_to_float)
@@ -519,4 +596,7 @@ if __name__ == '__main__':
                         city_name=city_name)
     # create Behavior table for 5R1C model:
     create_behavior_excel(country=country_name)
+    # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
+    # reflected in the target temperatures of ID Behavior 2 in the behavior table
+    create_people_at_home_profiles(country=country_name)
 
