@@ -117,7 +117,7 @@ def davies_bouldin_analysis(X, k_range: np.array) -> (list, list):
     Returns:
     - davies bouldin (list): the davies bouldin statistic
     """
-    cluster_kmeans = KMeans()
+    cluster_kmeans = KMeans(random_state=42)
     davies_bouldin_kmeans = []
     for k in k_range:
         cluster_kmeans.set_params(n_clusters=k)
@@ -286,6 +286,24 @@ def create_new_building_df_from_cluster(number_of_cluster: dict,
     return new_df
 
 
+def load_operation_scenario_ids(city_name: str):
+    list_of_ids = [
+        "ID_HotWaterTank",
+        "ID_SpaceHeatingTank",
+        "ID_HeatingElement",
+        "ID_Battery",
+        "ID_Boiler",
+    ]  # space cooling is done in db_init
+    pre_name = "OperationScenario_Component_"
+    path = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}"
+    values = {}
+    for component_id in list_of_ids:
+        xlsx_name = pre_name + component_id.replace("ID_", "") + ".xlsx"
+        dataframe = pd.read_excel(path / xlsx_name)
+        values[component_id] = dataframe[component_id].to_list()
+    return values
+
+
 def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) -> None:
     """
     create the scenario start file for the flex model
@@ -315,13 +333,7 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                 new_frame.loc[:, "ID_PV"] = pv_id
                 pv_table_long = pd.concat([pv_table_long, new_frame], axis=0)
 
-    params_values = {
-        "ID_HotWaterTank": [1, 2, 3],
-        "ID_SpaceHeatingTank": [1, 2, 3],
-        "ID_HeatingElement": [1, 2, 3],
-        "ID_Battery": [1, 2, 3],
-        "ID_Boiler": [1, 2, 3, 4]
-    }  # space cooling is done in db_init
+    params_values = load_operation_scenario_ids(city_name=region)
     excluded_lists = pv_table_long.loc[:, ["ID_Building", "ID_PV", "type"]].values.tolist()
     first_excluded_key = "ID_Building"
     # create new dictionary where the excluded list is the first element of the first excluded key
