@@ -358,7 +358,7 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                   ].index, inplace=True)
     # no heating tank when there is no HP
     df_start.drop(df_start.loc[
-                  (df_start.loc[:, "ID_Boiler"].isin([1, 4])) & (df_start.loc[:, "ID_SpaceHeatingTank"] != 1), :
+                  (df_start.loc[:, "ID_Boiler"].isin([1, 4, 5])) & (df_start.loc[:, "ID_SpaceHeatingTank"] != 1), :
                   ].index, inplace=True)
     # big tanks, heating element only for MFH and small only for SFH:
     # Hot water tank
@@ -385,6 +385,12 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                   ].index, inplace=True)
     df_start = df_start.reset_index(drop=True)
 
+    # behavior: add ID_Behavior 0 as it is not used and the real IDs are selected in the FLEX model
+    df_start["ID_Behavior"] = 0
+    df_start.loc[df_start.loc[:, "ID_Boiler"].isin([2, 3, 5]), "ID_Behavior"] = 1  # Air_HP or Ground_HP or Gas
+    df_start.loc[df_start.loc[:, "ID_Boiler"] == 1, "ID_Behavior"] = 3  # Electric
+    df_start.loc[df_start.loc[:, "ID_Boiler"] == 4, "ID_Behavior"] = 2  # no heating
+
     final_pv = df_start.copy()
 
     # create a new building table which corresponds to the PV table (same length, buildings are double)
@@ -394,7 +400,9 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                                  "ID_HotWaterTank",
                                  "ID_SpaceHeatingTank",
                                  "ID_HeatingElement",
-                                 "ID_Boiler"]].copy()
+                                 "ID_Boiler",
+                                 "ID_Behavior"
+                                 ]].copy()
     merged_df = merged_df.merge(new_building_df, on="ID_Building")
 
     scenario_start = merged_df.loc[:, ["ID_Building",
@@ -403,7 +411,9 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                                        "ID_HotWaterTank",
                                        "ID_SpaceHeatingTank",
                                        "ID_HeatingElement",
-                                       "ID_Boiler"]]
+                                       "ID_Boiler",
+                                       "ID_Behavior"
+                                       ]]
 
     scenario_start.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
                             f"Scenario_start_{region}.xlsx", index=False)
