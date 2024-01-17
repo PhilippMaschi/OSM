@@ -359,7 +359,8 @@ def create_boiler_excel(df: pd.DataFrame,
     # }
     boiler_dict = {
         "ID_Boiler": [1, 2, 3, 4, 5],
-        "type": ["Electric", "Air_HP", "Ground_HP", "no heating", "gas"]
+        "type": ["Electric", "Air_HP", "Ground_HP", "no heating", "gas"],
+        "carnot_efficiency_factor": [1, 0.4, 0.45, 1, 0.95]
     }
     boiler_df = pd.DataFrame(boiler_dict)
     # boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
@@ -367,7 +368,7 @@ def create_boiler_excel(df: pd.DataFrame,
     boiler_df.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
     boiler_df.to_excel(
         Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-        f"OperationScenario_Component_Boiler_{city_name}.xlsx"
+        f"OperationScenario_Component_Boiler_{city_name}.xlsx", index=False
     )
 
 
@@ -456,8 +457,8 @@ def generate_heating_schedule():
         start_index = day * 24
         # Determine morning heating
         if random.random() < 0.5:  # 50% chance
-            morning_heating_hour = random.randint(start_morning, end_morning - 1)
-            morning_heating_index = start_index + morning_heating_hour - 1
+            morning_heating_hour = random.randint(start_morning, end_morning)
+            morning_heating_index = start_index + morning_heating_hour
             schedule[morning_heating_index] = 1
 
         # Determine afternoon heating
@@ -465,7 +466,7 @@ def generate_heating_schedule():
         afternoon_heating_start = random.randint(start_afternoon, end_afternoon - heating_duration)
 
         for i in range(heating_duration):
-            afternoon_heating_index = start_index + afternoon_heating_start + i - 1
+            afternoon_heating_index = start_index + afternoon_heating_start + i
             schedule[afternoon_heating_index] = 1
 
     return schedule
@@ -516,9 +517,9 @@ def create_behavior_excel(country: str):
         "id_people_at_home_profile_min": [1, 2, 3],
         "id_people_at_home_profile_max": [1, 2, 53],
         "target_temperature_at_home_max": [27, 27, 27],
-        "target_temperature_at_home_min": [20, 10, 18],
+        "target_temperature_at_home_min": [20, 0, 18],
         "target_temperature_not_at_home_max": [27, 27, 27],
-        "target_temperature_not_at_home_min": [20, 10, 10],
+        "target_temperature_not_at_home_min": [20, 0, 10],
         "shading_solar_reduction_rate": [0.5, 0.5, 0.5],
         "shading_threshold_temperature": [30, 30, 30],
         "temperature_unit": ["°C", "°C", "°C"],
@@ -599,4 +600,6 @@ if __name__ == '__main__':
     # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
     # reflected in the target temperatures of ID Behavior 2 in the behavior table
     create_people_at_home_profiles(country=country_name)
+
+    # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
 
