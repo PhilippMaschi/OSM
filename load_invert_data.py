@@ -2,7 +2,7 @@ import numpy as np
 from pathlib import Path
 import h5py
 import pandas as pd
-
+import tqdm
 
 BUILDING_CLASS_COLUMNS = {
     "index": int,
@@ -123,6 +123,13 @@ HEATING_SYSTEM_INDEX = {
     44: "electricity"  # TODO rein nehmen
 }
 
+SFH_MFH = {
+    1: "SFH",
+    2: "SFH",
+    5: "MFH",
+    6: "MFH"
+}
+
 def select_invert_building(gdf_row, invert_selection: pd.DataFrame):
     # check if the construction year from urban3r is available in invert:
 
@@ -218,22 +225,26 @@ def create_representative_building(group: pd.DataFrame,
 
     # new name is first 5 letters of first name + heating system
     new_row.loc[0, "heating_medium"] = group.loc[:, "heating_medium"].values[-1]
-    new_row["construction_period_start"] = group["construction_period_start"].values[-1]
-    new_row["construction_period_end"] = group["construction_period_end"].values[-1]
+    new_row.loc[:, "construction_period_start"] = group.loc[:, "construction_period_start"].values[-1]
+    new_row.loc[:, "construction_period_end"] = group.loc[:, "construction_period_end"].values[-1]
     new_row.loc[0, "name"] = f"{str(group.loc[:, 'name'].iloc[0])}"
     new_row.loc[0, "index"] = group.loc[:, "index"].iloc[0]  # new index is the first index of merged rows
     return new_row
 
 
-def filter_only_sevilla_buildings(df: pd.DataFrame):
-    mask = df["name"].astype(str).isin([name for name in df["name"].astype(str) if "Sevilla" in name])
+def filter_only_certain_region_buildings(df: pd.DataFrame, invert_city_name: str):
+    mask = df["name"].astype(str).isin([name for name in df["name"].astype(str) if invert_city_name in name])
     return df.loc[mask, :]
 
 
-def get_number_of_buildings_from_invert_spain() -> pd.DataFrame:
-    hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\001_buildings_spain.hdf5")
-    bc_df = hdf5_to_pandas(hdf5_f, f"BC_{2020}", BUILDING_CLASS_COLUMNS)
-    bssh_df = hdf5_to_pandas(hdf5_f, f"BSSH_{2020}", BUILDING_SEGMENT_COLUMNS)
+def get_number_heating_systems(df: pd.DataFrame) -> dict:
+    numbers = df.groupby("heating_system")["number_of_buildings"].sum()
+    return numbers.to_dict()
+
+def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: str, year: int) -> pd.DataFrame:
+    hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001_buildings_{country.lower()}.hdf5"
+    bc_df = hdf5_to_pandas(hdf5_f, f"BC_{year}", BUILDING_CLASS_COLUMNS)
+    bssh_df = hdf5_to_pandas(hdf5_f, f"BSSH_{year}", BUILDING_SEGMENT_COLUMNS)
     # reomve multiindex
     bssh_df.columns = bssh_df.columns.map(''.join)
     bc_df.columns = bc_df.columns.map(''.join)
@@ -241,45 +252,48 @@ def get_number_of_buildings_from_invert_spain() -> pd.DataFrame:
     bssh = bssh_df.apply(to_series)
     bc = bc_df.apply(to_series)
     bc["building_categories_index"] = bc["building_categories_index"].astype(int)
-    # use only Sevilla buildings!
-    bc = filter_only_sevilla_buildings(bc)
-    bssh = filter_only_sevilla_buildings(bssh)
+    # use only buildings from a specific city that represents a region in invert!
+    if country.lower() == "spain":
+        bc = filter_only_certain_region_buildings(bc, invert_city_filter_name)
+        bssh = filter_only_certain_region_buildings(bssh, invert_city_filter_name)
 
     # columns where numbers are summed up (PV and number of buildings)
-    adding_names = [name for name in bc.columns if "number" in name] + ["number_of_buildings"]
-    # columns to merge: [2:] so index and name are left out
-    merging_names = [
-                        name for name in bc.columns if "PV" and "number" not in name and "construction" not in name
-                    ][2:] + adding_names[:3]
-    # except number of persons and number of dwellings ([3:]) left out
-    adding_names = adding_names[3:]
+    # adding_names = [name for name in bc.columns if "number" in name] + ["number_of_buildings"]
+    # # columns to merge: [2:] so index and name are left out
+    # merging_names = [
+    #                     name for name in bc.columns if "PV" and "number" not in name and "construction" not in name
+    #                 ][2:] + adding_names[:3]
+    # # except number of persons and number of dwellings ([3:]) left out
+    # adding_names = adding_names[3:]
 
-    # Group the rows of bssh_df by building_classes_index
-    bssh_grouped = bssh.groupby(["building_classes_index", "heat_supply_system_index"])
-    new_bc = pd.DataFrame()
-    for (index, heat_system), group in bssh_grouped:
-        # reset the index to the invert index:
-        group = group.set_index("index")
-        bc_group = bc.loc[bc.loc[:, "index"].isin(list(group.index)), :]
-        # check if bc_group is an empty frame and continue if so
-        if bc_group.shape[0] == 0:
-            continue
-        bc_group.loc[:, "number_of_buildings"] = bc_group.loc[:, "index"].map(group.loc[:, "number_of_buildings"])
-        bc_group.loc[:, "heating_medium"] = HEATING_SYSTEM_INDEX[heat_system]
-        # create representative building out of the same invert buildings with different heating systems
-        new_building = create_representative_building(group=bc_group,
-                                                      column_name_with_numbers="number_of_buildings",
-                                                      merging_names=merging_names,
-                                                      adding_names=adding_names)
+    # remove duplicated rows of the bssh dataframe (don't know why they exist)
+    duplicate_rows = bssh.drop(columns=["index", "name"]).duplicated()
+    bssh_clean = bssh[~duplicate_rows].reset_index(drop=True)
+    # replace heating system indices that are the same as the additional information like installation year is not of our interest:
+    bssh_clean.loc[:, "heating_system"] = bssh_clean.loc[:, "heat_supply_system_index"].map(HEATING_SYSTEM_INDEX)
 
-        new_bc = pd.concat([new_bc, new_building], axis=0)
+    grouped = bssh_clean.groupby("building_classes_index")
+    x_df = bc.copy()
+    for index, group in tqdm.tqdm(grouped, desc="adding heating systems to building categories"):
+        # add total number of buildings:
+        total_number_buildings = group["number_of_buildings"].sum()
+        x_df.loc[x_df.loc[:, "index"] == index, "number_of_buildings"] = total_number_buildings
+        # add the number of buildings with other energy carriers
+        numbers = get_number_heating_systems(df=group)
+        for carrier, number in numbers.items():
+            x_df.loc[x_df.loc[:, "index"] == index, f"number_buildings_{carrier.replace(' ', '_')}"] = number
 
-    # drop nan rows because the number of buildings is 0
-    final_df = new_bc.dropna(axis=0).reset_index(drop=True)
-    return final_df
+    # nan to zero and only consider residential buildings:
+    final_bc = x_df.fillna(0).loc[x_df.loc[:, "building_categories_index"].isin(list(SFH_MFH.keys())), :].reset_index(drop=True)
+    return final_bc
+
+
 
 
 
 if __name__ == "__main__":
-    get_number_of_buildings_from_invert_spain()
+    # city names for spain are Sevilla (closest to Murcia) and for the Netherlands we don't filter because
+    # there are no representative regions except amsterdam
+    get_number_of_buildings_from_invert("Sevilla", "spain", 2020)
+
 
