@@ -241,10 +241,11 @@ def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.Data
     return selection
 
 
-def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_city_filter_name: str):
+def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_city_filter_name: str, year: int):
     # load invert table for Sevilla buildings
     df_invert = get_number_of_buildings_from_invert(invert_city_filter_name=invert_city_filter_name,
-                                                    country=country)
+                                                    country=country,
+                                                    year=year)
 
     df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
                                               df_invert.loc[:, "construction_period_end"].astype(str)
@@ -262,6 +263,7 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_cit
     print(types)
     type_groups = gdf.groupby("uso_princi")
     complete_df = pd.DataFrame()
+    np.random.seed(42)
     for type, group in type_groups:
         # add construction year to the buildings that don't have one
         # group["ano_construccion"] = replace_nan_with_distribution(group, "ano_construccion")
@@ -549,6 +551,7 @@ if __name__ == '__main__':
     region = MURCIA
     city_name = region["city_name"]
     country_name = "Spain"
+    year = 2020
     shp_filename = Path(f"merged_osm_geom_{city_name}.shp")
     extended_shp_filename = Path(f"merged_osm_geom_extended_{city_name}.shp")
     # merge the dataframes and safe the shapefile to shp_filename:
@@ -558,7 +561,10 @@ if __name__ == '__main__':
                            output_lyr=extended_shp_filename, )
 
     # combine the Urban3R information with the Invert database
-    combined_df = add_invert_data_to_gdf_table(big_df, country=country_name, invert_city_filter_name="Sevilla")
+    combined_df = add_invert_data_to_gdf_table(big_df,
+                                               country=country_name,
+                                               invert_city_filter_name="Sevilla",
+                                               year=year)
 
     # turn them to numeric
     numeric_df = combined_df.apply(convert_to_float)
@@ -599,7 +605,7 @@ if __name__ == '__main__':
     create_behavior_excel(country=country_name)
     # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
     # reflected in the target temperatures of ID Behavior 2 in the behavior table
-    create_people_at_home_profiles(country=country_name)
+    create_people_at_home_profiles(country=country_name, city_name=city_name)
 
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
 
