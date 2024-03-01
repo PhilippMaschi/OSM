@@ -245,7 +245,6 @@ def get_number_heating_systems(df: pd.DataFrame) -> dict:
 def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: str, year: int) -> pd.DataFrame:
     hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001_buildings_{country.lower()}.hdf5"
     bc_df = hdf5_to_pandas(hdf5_f, f"BC_{year}", BUILDING_CLASS_COLUMNS)
-    bc_df['name'] = bc_df['name'].apply(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
     bssh_df = hdf5_to_pandas(hdf5_f, f"BSSH_{year}", BUILDING_SEGMENT_COLUMNS)
     # reomve multiindex
     bssh_df.columns = bssh_df.columns.map(''.join)
@@ -281,14 +280,58 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
         total_number_buildings = group["number_of_buildings"].sum()
         x_df.loc[x_df.loc[:, "index"] == index, "number_of_buildings"] = total_number_buildings
         # add the number of buildings with other energy carriers
-        numbers = get_number_heating_systems(df=group)
-        for carrier, number in numbers.items():
-            x_df.loc[x_df.loc[:, "index"] == index, f"number_buildings_{carrier.replace(' ', '_')}"] = number
+        # numbers = get_number_heating_systems(df=group)
+        # for carrier, number in numbers.items():
+        #     x_df.loc[x_df.loc[:, "index"] == index, f"number_buildings_{carrier.replace(' ', '_')}"] = number
 
     # nan to zero and only consider residential buildings:
     final_bc = x_df.fillna(0).loc[x_df.loc[:, "building_categories_index"].isin(list(SFH_MFH.keys())), :].reset_index(drop=True)
+    final_bc['name'] = final_bc['name'].apply(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
     return final_bc
 
+
+def get_dynamic_calc_data(year: int, country: str) -> pd.DataFrame:
+    path_to_dynamic_data = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"dynamic_calc_data_bc_{year}_{country}.npz"
+    npz = np.load(path_to_dynamic_data)
+    column_names = npz["arr_1"]
+    data = npz["arr_0"]
+    df = pd.DataFrame(data=data)
+    df.columns = column_names.squeeze()
+    return df
+
+
+def get_probabilities_for_building_to_change(old_year: int, new_year: int) -> (pd.DataFrame, pd.DataFrame):
+    buildings_2020 = get_number_of_buildings_from_invert("Sevilla", "spain", old_year)
+    buildings_2030 = get_number_of_buildings_from_invert("Sevilla", "spain", new_year)
+
+    # for every building in 2020 the total number of buildings will be compared with the same bc index of 2030
+    # the difference in number of buildings is and indicator of how probable it is that the building was renovated
+    # or newly built.
+    bc_new_pool = buildings_2030.loc[~buildings_2030["index"].isin(buildings_2020["index"].to_list()), :].copy()
+    # based on the numbers of buildings it is decided if a building stays the same or a new building is drawn from the
+    # 2030 building pool (bc_2030_new_pool).
+    differenz = buildings_2020["number_of_buildings"] - buildings_2030.loc[
+        buildings_2030["index"].isin(buildings_2020["index"].to_list()), "number_of_buildings"]
+    # some of the buildings in 2020 will increase in numbers as they are renovated versions, thus the difference will
+    # be negative. This building type should be included into the 2030 pool again with the difference as the number
+    # of total buildings. This way other buildings from 2020 can become this building category.
+    add_to_pool = buildings_2020.loc[differenz[differenz < 0].index, :]
+    # adapt the number of buildings for the add to pool buildings from 2020:
+    add_to_pool["number_of_buildings"] = differenz[differenz < 0] * -1
+    bc_new_pool = pd.concat([bc_new_pool, add_to_pool], axis=0)
+    bc_new_pool.loc[:, "construction_period"] = bc_new_pool.loc[:, "construction_period_start"].astype(str) + \
+                                                     "-" + bc_new_pool.loc[:, "construction_period_end"].astype(
+        str)
+    # now set the probabilities of the buildings with negative difference to 0
+    differenz[differenz < 0] = 0
+    # calc probabilities
+    probabilities = differenz / buildings_2020["number_of_buildings"]
+    np.random.seed(42)
+    # for each bc index the choice is made if the building will be replace or if it stays the same:
+    choices = pd.concat([
+        buildings_2020["index"], probabilities.apply(lambda p: np.random.choice([False, True], p=[1 - p, p]))
+    ], axis=1).rename(columns={"number_of_buildings": "choice"})
+    return choices, bc_new_pool
 
 
 
@@ -296,32 +339,30 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
 if __name__ == "__main__":
     # city names for spain are Sevilla (closest to Murcia) and for the Netherlands we don't filter because
     # there are no representative regions except amsterdam
-    buildings_2020 = get_number_of_buildings_from_invert("Sevilla", "spain", 2020)
-    buildings_2030 = get_number_of_buildings_from_invert("Sevilla", "spain", 2030)
-
-    # for every building in 2020 the total number of buildings will be compared with the same bc index of 2030
-    # the difference in number of buildings is and indicator of how probable it is that the building was renovated
-    # or newly built.
-    bc_2030_new_pool = buildings_2030.loc[~buildings_2030["index"].isin(buildings_2020["index"].to_list()), :]
-    # based on the numbers of buildings it is decided if a building stays the same or a new building is drawn from the
-    # 2030 building pool (bc_2030_new_pool).
-    differenz = buildings_2020["number_of_buildings"] - buildings_2030.loc[buildings_2030["index"].isin(buildings_2020["index"].to_list()), "number_of_buildings"]
-    # some of the buildings in 2020 will increase in numbers as they are renovated versions, thus the difference will
-    # be negative. This building type should be included into the 2030 pool again with the difference as the number
-    # of total buildings. This way other buildings from 2020 can become this building category.
-    add_to_pool = buildings_2020.loc[differenz[differenz < 0].index, :]
-    # adapt the number of buildings for the add to pool buildings from 2020:
-    add_to_pool["number_of_buildings"] = differenz[differenz < 0] * -1
-    bc_2030_new_pool = pd.concat([bc_2030_new_pool, add_to_pool], axis=0)
-    # now set the probabilities of the buildings with negative difference to 0
-    differenz[differenz < 0] = 0
-    # calc probabilities
-    probabilities = differenz / buildings_2020["number_of_buildings"]
-    np.random.seed(42)
-    choices = probabilities.apply(lambda p: np.random.choice([False, True], p=[1 - p, p]))
-
-    # with the choices go into the 2020 murcia df and for all building types that have choice=True selecte a new
+    country = "Spain"
+    choices, bc_2030_new_pool = get_probabilities_for_building_to_change(old_year=2020, new_year=2030)
+    # with the choices go into the 2020 murcia df and for all building types that have choice=True select a new
     # building from the new pool:
+
+    # load the old non clustered buildings:
+    old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                                  "2020_combined_building_df_Murcia_non_clustered.xlsx")
+    old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                                  "OperationScenario_Component_Building_Murcia_non_clustered_2020.xlsx")
+
+    update_city_buildings(choices=choices,
+                          new_building_pool=bc_2030_new_pool,
+                          old_building_df=old_buildings,
+                          old_5R1C_df=old_5R1C,
+                          new_year=2030,
+                          country=country)
+
+
+
+
+
+
+
 
 
 

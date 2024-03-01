@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.random
 import pandas as pd
+import tqdm
 from shapely.geometry import shape
 import geopandas as gpd
 from shapely.geometry import box
@@ -8,7 +9,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
 import h5py
-from load_invert_data import get_number_of_buildings_from_invert
+from load_invert_data import get_number_of_buildings_from_invert, get_dynamic_calc_data, get_probabilities_for_building_to_change
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import warnings
@@ -196,16 +197,32 @@ def replace_nan_with_distribution(gdf: pd.DataFrame, column_name: str) -> gpd.Ge
 
 
 def find_construction_period(construction_periods, cell) -> str:
-    check = False
-    for period in construction_periods:
-        if int(period.split("-")[0]) <= cell <= int(period.split("-")[1]):
-            check = True
-            # print(f"{cell} is between {period.split('-')[0]} and {period.split('-')[1]}")
-            break
-    if not check:
-        period = "2002-2008"
-        print(f"{cell} is in no period! {period} is chosen instead")
-    return period
+    parsed_intervals = []
+    for interval in construction_periods:
+        start, end = map(int, interval.split('-'))
+        parsed_intervals.append((start, end))
+
+    for start, end in parsed_intervals:
+        if start <= cell <= end:
+            return f"{start}-{end}"
+
+    # If the year doesn't fall within any interval, find the closest interval
+    closest_interval = None
+    smallest_difference = float('inf')
+    for start, end in parsed_intervals:
+        # Check the distance to the start and end of each interval
+        start_diff = abs(start - cell)
+        end_diff = abs(end - cell)
+
+        # Update the closest interval if a smaller difference is found
+        if start_diff < smallest_difference:
+            closest_interval = (start, end)
+            smallest_difference = start_diff
+        if end_diff < smallest_difference:
+            closest_interval = (start, end)
+            smallest_difference = end_diff
+    return f"{closest_interval[0]}-{closest_interval[1]}"
+
 
 
 def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.DataFrame:
@@ -246,7 +263,6 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_cit
     df_invert = get_number_of_buildings_from_invert(invert_city_filter_name=invert_city_filter_name,
                                                     country=country,
                                                     year=year)
-
     df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
                                               df_invert.loc[:, "construction_period_end"].astype(str)
     # drop the rows where buildings are built between 1900-1980 etc.
@@ -262,7 +278,7 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_cit
     types = gdf["uso_princi"].unique()
     print(types)
     type_groups = gdf.groupby("uso_princi")
-    complete_df = pd.DataFrame()
+    df_list = []
     np.random.seed(42)
     for type, group in type_groups:
         # add construction year to the buildings that don't have one
@@ -299,21 +315,22 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_cit
             random_draw = np.random.choice(distribution.index, size=1, p=distribution.values)[0]
             selected_building = type_selection.loc[random_draw, :]
             # delete number of buildings because this number is 1 for a single building
-            complete_df = pd.concat([
-                complete_df,
-                pd.DataFrame(pd.concat([selected_building, row.drop(columns=["number_of_buildings"])], axis=0)).T
-            ], axis=0
-            )
+            df_list.append(pd.DataFrame(pd.concat([selected_building, row.drop(columns=["number_of_buildings"])], axis=0)).T)
 
-    final_df = complete_df.reset_index(drop=True)
+    final_df = pd.concat(df_list, axis=0).reset_index(drop=True)
+
     return final_df
 
 
-def get_parameters_from_dynamic_calc_data(df: pd.DataFrame) -> pd.DataFrame:
+def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: str) -> pd.DataFrame:
     # load dynamic calc data
-    dynamic_calc = pd.read_csv(Path(r"input_data\dynamic_calc_data_bc_2020_Spain.csv"), sep=";")
+    try:
+        dynamic_calc = pd.read_csv(Path(f"input_data\dynamic_calc_data_bc_{year}_Spain.csv"), sep=";")
+    except:
+        dynamic_calc = get_dynamic_calc_data(year, country)
     # map the CM_Factor and the Am_factor to the df through the bc_index:
-    df = df.rename(columns={"index": "bc_index"})
+    if not "bc_index" in df.columns:
+        df = df.rename(columns={"index": "bc_index"})
     merged_df = df.merge(
         dynamic_calc.loc[:, ["bc_index", "CM_factor", "Am_factor"]],
         on="bc_index",
@@ -322,7 +339,7 @@ def get_parameters_from_dynamic_calc_data(df: pd.DataFrame) -> pd.DataFrame:
     return merged_df
 
 
-def calculate_5R1C_necessary_parameters(df):
+def calculate_5R1C_necessary_parameters(df, year: int, country: str):
     # number of floors
     df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
     # height of the building
@@ -336,7 +353,7 @@ def calculate_5R1C_necessary_parameters(df):
     df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
     # ration of adjacent to not adjacent (to compare it to invert later)
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
-    df_return = get_parameters_from_dynamic_calc_data(df)
+    df_return = get_parameters_from_dynamic_calc_data(df, year, country)
 
     # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
     # of persons per dwelling from invert
@@ -346,27 +363,13 @@ def calculate_5R1C_necessary_parameters(df):
     return df_return
 
 
-def create_boiler_excel(df: pd.DataFrame,
-                        city_name: str):
-    # translation_dict = {
-    #     "electricity": "Electric",
-    #     "heat pump air": "Air_HP",
-    #     "heat pump ground": "Ground_HP",
-    #     "no heating": "no heating",
-    #     "coal": "solids",
-    #     "wood": "solids",
-    #     "oil": "liquids",
-    #     "gas": "gases",
-    #     "district heating": "district heating"
-    # }
+def create_boiler_excel(city_name: str):
     boiler_dict = {
         "ID_Boiler": [1, 2, 3, 4, 5],
         "type": ["Electric", "Air_HP", "Ground_HP", "no heating", "gas"],
         "carnot_efficiency_factor": [1, 0.4, 0.45, 1, 0.95]
     }
     boiler_df = pd.DataFrame(boiler_dict)
-    # boiler = pd.DataFrame(data=np.arange(1, df.shape[0] + 1), columns=["ID_Boiler"])
-    # boiler.loc[:, "type"] = [translation_dict[i] for i in df.loc[:, "heating_medium"]]
     boiler_df.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
     boiler_df.to_excel(
         Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
@@ -546,11 +549,19 @@ def convert_to_float(column):
     return pd.to_numeric(column, errors="ignore")
 
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    region = MURCIA
-    city_name = region["city_name"]
-    country_name = "Spain"
+def get_related_5R1C_parameters(df: pd.DataFrame, year: int, country_name: str) -> (pd.DataFrame, pd.DataFrame):
+    # calculate all necessary parameters for the 5R1C model:
+    final_df = calculate_5R1C_necessary_parameters(df, year, country_name)
+
+    # create the dataframe with 5R1C parameters
+    building_df, total_df = Create5R1CParameters(df=final_df).main()
+    return building_df, total_df
+
+
+def create_2020_baseline_building_distribution(region: dict,
+                                               city_name: str,
+                                               country_name: str,
+                                               ):
     year = 2020
     shp_filename = Path(f"merged_osm_geom_{city_name}.shp")
     extended_shp_filename = Path(f"merged_osm_geom_extended_{city_name}.shp")
@@ -568,44 +579,149 @@ if __name__ == '__main__':
 
     # turn them to numeric
     numeric_df = combined_df.apply(convert_to_float)
-    # calculate all necessary parameters for the 5R1C model:
-    final_df = calculate_5R1C_necessary_parameters(numeric_df)
+    building_df, total_df = get_related_5R1C_parameters(df=numeric_df, year=year, country_name=country_name)
 
-    # create the dataframe with 5R1C parameters
-    building_df, total_df = Create5R1CParameters(df=final_df).main()
+    # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
     building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered.xlsx", index=False
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}.xlsx",
+        index=False
     )
     print("saved OperationScenario_Component_Building to xlsx")
     total_df.loc[:, "ID_Building"] = np.arange(1, total_df.shape[0] + 1)
     # add representative point for each building
     total_df['rep_point'] = total_df['geometry'].apply(lambda x: x.representative_point())
     total_df.to_excel(
-        Path(f"output_data") / f"combined_building_df_{city_name}_non_clustered.xlsx",
+        Path(f"output_data") / f"{year}_combined_building_df_{city_name}_non_clustered.xlsx",
         index=False
     )
     total_df.to_excel(
         Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}" /
-        f"combined_building_df_{city_name}_non_clustered.xlsx",
+        f"{year}_combined_building_df_{city_name}_non_clustered.xlsx",
         index=False
     )
     print("saved dataframe with all information to xlsx")
 
     # create csv file with coordinates and shp file with dots to check in QGIS
     coordinate_df = gpd.GeoDataFrame(total_df[["rep_point", "ID_Building"]]).set_geometry("rep_point")
-    coordinate_df.to_file(Path(r"output_data") / f"building_coordinates_{city_name}.shp", driver="ESRI Shapefile")
-    coordinate_df.to_csv(Path(r"output_data") / f"Building_coordinates_{city_name}.csv", index=False)
+    coordinate_df.to_file(Path(r"output_data") / f"{year}_building_coordinates_{city_name}.shp",
+                          driver="ESRI Shapefile")
+    coordinate_df.to_csv(Path(r"output_data") / f"{year}_Building_coordinates_{city_name}.csv", index=False)
     coordinate_df.to_csv(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}"
-                         / f"Building_coordinates_{city_name}.csv", index=False)
+                         / f"{year}_Building_coordinates_{city_name}.csv", index=False)
 
     # create the boiler table for the 5R1C model:
-    create_boiler_excel(df=final_df,
-                        city_name=city_name)
+    create_boiler_excel(city_name=city_name)
     # create Behavior table for 5R1C model:
     create_behavior_excel(country=country_name)
     # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
     # reflected in the target temperatures of ID Behavior 2 in the behavior table
     create_people_at_home_profiles(country=country_name, city_name=city_name)
 
+
+def update_city_buildings(choices: pd.DataFrame,
+                          new_building_pool: pd.DataFrame,
+                          old_building_df: pd.DataFrame,
+                          old_5R1C_df: pd.DataFrame,
+                          new_year: int,
+                          country: str):
+    new_buildings = []
+    new_5R1C = []
+
+    # group the old buildings by bc index and iterate through them. If the bc index has a positive choice for a new
+    # building, new buildings are drawn for the whole group from the new pool in the same year category:
+    old_buildings_group = old_building_df.groupby("bc_index")
+    for bc_index, group in tqdm.tqdm(old_buildings_group, desc=f"creating building df for {new_year}"):
+        if choices.loc[choices.loc[:, "index"] == bc_index, "choice"].values[0] == False:
+            new_buildings.append(group)  # buildings stay the same
+            new_5R1C.append(
+                old_5R1C_df.loc[old_5R1C_df.loc[:, "ID_Building"].isin(group.loc[:, "ID_Building"].to_list()), :].copy()
+            )
+            continue
+
+        # draw new buildings for each row:
+        # construction year and type are the same within the group as its the same bc index
+        building_type = group["type"].values[0]
+        construction_period = group['invert_construction_period'].values[0]
+        # based on construction period and type, filter the new pool
+        close_selection = new_building_pool.loc[new_building_pool["construction_period"] == construction_period, :].copy()
+        mask = close_selection["name"].isin([name for name in close_selection["name"] if building_type in name])
+        # set bc index as index to have it in the random draw
+        type_selection = close_selection.loc[mask, :].copy().set_index("index")
+
+        # now get select the building after the probability based on the distribution of the number of buildings
+        # in invert:
+        distribution = type_selection["number_of_buildings"].astype(float) / \
+                       type_selection["number_of_buildings"].astype(float).sum()
+        # draw one sample from the distribution, the size is the number of buildings that have to be re-drawn:
+        sample_size = group.shape[0]
+        random_draw = np.random.choice(distribution.index, size=sample_size, p=distribution.values)
+        # random draw is an array of bc indices that will replace the buildings in the current group
+
+        new_buildings_list = [new_building_pool.loc[new_building_pool.loc[:, "index"] == i, :] for i in random_draw]
+        new_buildings_df = pd.concat(new_buildings_list)
+        # to the new buildings df add the information from the old buildings like the ID_Building, rep point etc.
+        # Only parameters that have to be adjusted are the 5R1C parameters which are CM_factor and Am_factor, n50
+        new_df = group.copy()
+        new_df.loc[:, new_buildings_df.columns] = new_buildings_df.values
+        # drop the CM factor and Am factor because they need to be replaced by the new buildings:
+        new_df.drop(columns=["CM_factor", "Am_factor"], inplace=True)
+        new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country)
+        # with this dataframe we can calculate the new 5R1C parameters:
+        new_building_component_df_part, new_combined_building_df_part = Create5R1CParameters(df=new_df_with_5R1C).main()
+
+        new_buildings.append(new_combined_building_df_part)
+        new_5R1C.append(new_building_component_df_part)
+
+    new_total_df = pd.concat(new_buildings, axis=0).drop(columns=["index"])
+    new_building_df = pd.concat(new_5R1C, axis=0)
+    # oder the dfs after the ID_Building:
+    new_total_df.sort_values(by="ID_Building", inplace=True)
+    new_building_df.sort_values(by="ID_Building", inplace=True)
+    # save the dataframes
+    new_total_df.to_excel(
+        Path(f"output_data") / f"{new_year}_combined_building_df_{city_name}_non_clustered.xlsx",
+        index=False
+    )
+    new_building_df.to_excel(
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}.xlsx",
+        index=False
+    )
+
+
+# Press the green button in the gutter to run the script.
+if __name__ == '__main__':
+    region = MURCIA
+    city_name = region["city_name"]
+    country_name = "Spain"
+    years = [2030, 2040, 2050]
+    # generate the baseline:
+    create_2020_baseline_building_distribution(region=region, city_name=city_name, country_name=country_name)
+    # now generate iteratively the building files for the years based on the baseline:
+    np.random.seed(42)
+    for i, new_year in enumerate(years):
+        if i == 0:
+            old_year = 2020
+        else:
+            old_year = years[i-1]
+        choices, bc_2030_new_pool = get_probabilities_for_building_to_change(old_year=old_year, new_year=new_year)
+        # with the choices go into the 2020 murcia df and for all building types that have choice=True select a new
+        # building from the new pool:
+
+        # load the old non clustered buildings:
+        old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                                      f"{old_year}_combined_building_df_Murcia_non_clustered.xlsx")
+        old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                                 f"OperationScenario_Component_Building_Murcia_non_clustered_{old_year}.xlsx")
+
+        update_city_buildings(choices=choices,
+                              new_building_pool=bc_2030_new_pool,
+                              old_building_df=old_buildings,
+                              old_5R1C_df=old_5R1C,
+                              new_year=new_year,
+                              country=country_name)
+
+
+
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
 
+    # todo boxplot of hwb um zu zeigen wie der Heizwärmebedarf auf grund von renovierung sinkt
