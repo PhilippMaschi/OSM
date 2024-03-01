@@ -706,7 +706,7 @@ if __name__ == '__main__':
     country_name = "Spain"
     years = [2030, 2040, 2050]
     # generate the baseline:
-    # create_2020_baseline_building_distribution(region=region, city_name=city_name, country_name=country_name)
+    create_2020_baseline_building_distribution(region=region, city_name=city_name, country_name=country_name)
     # now generate iteratively the building files for the years based on the baseline:
     np.random.seed(42)
     for i, new_year in enumerate(years):
