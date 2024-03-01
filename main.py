@@ -618,7 +618,7 @@ def create_2020_baseline_building_distribution(region: dict,
     create_people_at_home_profiles(country=country_name, city_name=city_name)
 
 
-def update_city_buildings(choices: pd.DataFrame,
+def update_city_buildings(probability: pd.DataFrame,
                           new_building_pool: pd.DataFrame,
                           old_building_df: pd.DataFrame,
                           old_5R1C_df: pd.DataFrame,
@@ -630,18 +630,29 @@ def update_city_buildings(choices: pd.DataFrame,
     # group the old buildings by bc index and iterate through them. If the bc index has a positive choice for a new
     # building, new buildings are drawn for the whole group from the new pool in the same year category:
     old_buildings_group = old_building_df.groupby("bc_index")
+    np.random.seed(42)
     for bc_index, group in tqdm.tqdm(old_buildings_group, desc=f"creating building df for {new_year}"):
-        if choices.loc[choices.loc[:, "index"] == bc_index, "choice"].values[0] == False:
-            new_buildings.append(group)  # buildings stay the same
-            new_5R1C.append(
-                old_5R1C_df.loc[old_5R1C_df.loc[:, "ID_Building"].isin(group.loc[:, "ID_Building"].to_list()), :].copy()
-            )
-            continue
+        # for each building decide based on the probability if it will be replaced:
+        sample_size = group.shape[0]
+        re_sample_probability = probability.loc[probability.loc[:, "index"] == bc_index, "probability"].values[0]
+        group["rechoose"] = np.random.choice([False, True], p=[1 - re_sample_probability, re_sample_probability], size=sample_size)
+        # the buildings with True in rechoose will be newly choosen from the new building pool, the others stay:
+
+        # buildings stay the same
+        stay_the_same = group.query("rechoose==False")
+        if not stay_the_same.empty:
+            new_buildings.append(stay_the_same.drop(columns=["rechoose"]))
+            # building IDs that stay the same:
+            same_buildings_ids = stay_the_same["ID_Building"].to_list()
+            new_5R1C.append(old_5R1C_df.loc[old_5R1C_df.loc[:, "ID_Building"].isin(same_buildings_ids), :].copy())
 
         # draw new buildings for each row:
+        to_be_chosen_new = group.query("rechoose==True")
+        if to_be_chosen_new.empty:
+            continue
         # construction year and type are the same within the group as its the same bc index
-        building_type = group["type"].values[0]
-        construction_period = group['invert_construction_period'].values[0]
+        building_type = to_be_chosen_new["type"].values[0]
+        construction_period = to_be_chosen_new['invert_construction_period'].values[0]
         # based on construction period and type, filter the new pool
         close_selection = new_building_pool.loc[new_building_pool["construction_period"] == construction_period, :].copy()
         mask = close_selection["name"].isin([name for name in close_selection["name"] if building_type in name])
@@ -653,15 +664,14 @@ def update_city_buildings(choices: pd.DataFrame,
         distribution = type_selection["number_of_buildings"].astype(float) / \
                        type_selection["number_of_buildings"].astype(float).sum()
         # draw one sample from the distribution, the size is the number of buildings that have to be re-drawn:
-        sample_size = group.shape[0]
-        random_draw = np.random.choice(distribution.index, size=sample_size, p=distribution.values)
         # random draw is an array of bc indices that will replace the buildings in the current group
+        random_draw = np.random.choice(distribution.index, size=to_be_chosen_new.shape[0], p=distribution.values)
 
         new_buildings_list = [new_building_pool.loc[new_building_pool.loc[:, "index"] == i, :] for i in random_draw]
         new_buildings_df = pd.concat(new_buildings_list)
         # to the new buildings df add the information from the old buildings like the ID_Building, rep point etc.
         # Only parameters that have to be adjusted are the 5R1C parameters which are CM_factor and Am_factor, n50
-        new_df = group.copy()
+        new_df = to_be_chosen_new.copy()
         new_df.loc[:, new_buildings_df.columns] = new_buildings_df.values
         # drop the CM factor and Am factor because they need to be replaced by the new buildings:
         new_df.drop(columns=["CM_factor", "Am_factor"], inplace=True)
@@ -669,7 +679,7 @@ def update_city_buildings(choices: pd.DataFrame,
         # with this dataframe we can calculate the new 5R1C parameters:
         new_building_component_df_part, new_combined_building_df_part = Create5R1CParameters(df=new_df_with_5R1C).main()
 
-        new_buildings.append(new_combined_building_df_part)
+        new_buildings.append(new_combined_building_df_part.drop(columns=["rechoose"]))
         new_5R1C.append(new_building_component_df_part)
 
     new_total_df = pd.concat(new_buildings, axis=0).drop(columns=["index"])
@@ -686,6 +696,7 @@ def update_city_buildings(choices: pd.DataFrame,
         Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}.xlsx",
         index=False
     )
+    print(f"saved building xlsx for {new_year}")
 
 
 # Press the green button in the gutter to run the script.
@@ -695,7 +706,7 @@ if __name__ == '__main__':
     country_name = "Spain"
     years = [2030, 2040, 2050]
     # generate the baseline:
-    create_2020_baseline_building_distribution(region=region, city_name=city_name, country_name=country_name)
+    # create_2020_baseline_building_distribution(region=region, city_name=city_name, country_name=country_name)
     # now generate iteratively the building files for the years based on the baseline:
     np.random.seed(42)
     for i, new_year in enumerate(years):
@@ -703,7 +714,7 @@ if __name__ == '__main__':
             old_year = 2020
         else:
             old_year = years[i-1]
-        choices, bc_2030_new_pool = get_probabilities_for_building_to_change(old_year=old_year, new_year=new_year)
+        propb, bc_2030_new_pool = get_probabilities_for_building_to_change(old_year=old_year, new_year=new_year)
         # with the choices go into the 2020 murcia df and for all building types that have choice=True select a new
         # building from the new pool:
 
@@ -713,7 +724,7 @@ if __name__ == '__main__':
         old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
                                  f"OperationScenario_Component_Building_Murcia_non_clustered_{old_year}.xlsx")
 
-        update_city_buildings(choices=choices,
+        update_city_buildings(probability=propb,
                               new_building_pool=bc_2030_new_pool,
                               old_building_df=old_buildings,
                               old_5R1C_df=old_5R1C,

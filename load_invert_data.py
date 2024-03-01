@@ -130,6 +130,7 @@ SFH_MFH = {
     6: "MFH"
 }
 
+
 def select_invert_building(gdf_row, invert_selection: pd.DataFrame):
     # check if the construction year from urban3r is available in invert:
 
@@ -275,7 +276,7 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
 
     grouped = bssh_clean.groupby("building_classes_index")
     x_df = bc.copy()
-    for index, group in tqdm.tqdm(grouped, desc="adding heating systems to building categories"):
+    for index, group in tqdm.tqdm(grouped, desc=f"adding heating systems to building categories in {year}"):
         # add total number of buildings:
         total_number_buildings = group["number_of_buildings"].sum()
         x_df.loc[x_df.loc[:, "index"] == index, "number_of_buildings"] = total_number_buildings
@@ -285,13 +286,15 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
         #     x_df.loc[x_df.loc[:, "index"] == index, f"number_buildings_{carrier.replace(' ', '_')}"] = number
 
     # nan to zero and only consider residential buildings:
-    final_bc = x_df.fillna(0).loc[x_df.loc[:, "building_categories_index"].isin(list(SFH_MFH.keys())), :].reset_index(drop=True)
+    final_bc = x_df.fillna(0).loc[x_df.loc[:, "building_categories_index"].isin(list(SFH_MFH.keys())), :].reset_index(
+        drop=True)
     final_bc['name'] = final_bc['name'].apply(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
     return final_bc
 
 
 def get_dynamic_calc_data(year: int, country: str) -> pd.DataFrame:
-    path_to_dynamic_data = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"dynamic_calc_data_bc_{year}_{country}.npz"
+    path_to_dynamic_data = Path(
+        r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"dynamic_calc_data_bc_{year}_{country}.npz"
     npz = np.load(path_to_dynamic_data)
     column_names = npz["arr_1"]
     data = npz["arr_0"]
@@ -320,18 +323,16 @@ def get_probabilities_for_building_to_change(old_year: int, new_year: int) -> (p
     add_to_pool["number_of_buildings"] = differenz[differenz < 0] * -1
     bc_new_pool = pd.concat([bc_new_pool, add_to_pool], axis=0)
     bc_new_pool.loc[:, "construction_period"] = bc_new_pool.loc[:, "construction_period_start"].astype(str) + \
-                                                     "-" + bc_new_pool.loc[:, "construction_period_end"].astype(
+                                                "-" + bc_new_pool.loc[:, "construction_period_end"].astype(
         str)
     # now set the probabilities of the buildings with negative difference to 0
     differenz[differenz < 0] = 0
     # calc probabilities
-    probabilities = differenz / buildings_2020["number_of_buildings"]
-    np.random.seed(42)
-    # for each bc index the choice is made if the building will be replace or if it stays the same:
-    choices = pd.concat([
-        buildings_2020["index"], probabilities.apply(lambda p: np.random.choice([False, True], p=[1 - p, p]))
-    ], axis=1).rename(columns={"number_of_buildings": "choice"})
-    return choices, bc_new_pool
+    probs = differenz / buildings_2020["number_of_buildings"]
+    probabilities = pd.concat([buildings_2020["index"], probs], axis=1).rename(
+        columns={"number_of_buildings": "probability"})
+    return probabilities, bc_new_pool
+
 
 
 
@@ -348,7 +349,7 @@ if __name__ == "__main__":
     old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
                                   "2020_combined_building_df_Murcia_non_clustered.xlsx")
     old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                  "OperationScenario_Component_Building_Murcia_non_clustered_2020.xlsx")
+                             "OperationScenario_Component_Building_Murcia_non_clustered_2020.xlsx")
 
     update_city_buildings(choices=choices,
                           new_building_pool=bc_2030_new_pool,
@@ -356,15 +357,3 @@ if __name__ == "__main__":
                           old_5R1C_df=old_5R1C,
                           new_year=2030,
                           country=country)
-
-
-
-
-
-
-
-
-
-
-
-
