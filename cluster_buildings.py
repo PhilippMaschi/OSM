@@ -331,7 +331,7 @@ def plot_cluster_dict(dict_dfs: dict, region: str):
 
 
 
-def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str, year: int) -> None:
+def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) -> pd.DataFrame:
     """
     create the scenario start file for the flex model
     :param new_building_df: the new_df with the clustered buildings as single buildings
@@ -429,9 +429,7 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str, ye
                                        "ID_Boiler",
                                        "ID_Behavior"
                                        ]]
-
-    scenario_start.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                            f"Scenario_start_{region}_{year}.xlsx", index=False)
+    return scenario_start
 
 
 def plot_year_nr_clusters(plot_dict: dict):
@@ -448,6 +446,9 @@ def plot_year_nr_clusters(plot_dict: dict):
     plt.show()
 
 
+def create_folder(folder_path: Path):
+    if not folder_path.exists():
+        folder_path.mkdir(parents=True)
 
 def main():
     region = "Murcia"
@@ -475,18 +476,18 @@ def main():
                                                      old_df=df,
                                                      region=region)
         # save the new building df to the FLEX project:
-        new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
-                        f"OperationScenario_Component_Building_{year}.xlsx", index=False)
-        new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                        f"OperationScenario_Component_Building_{year}.xlsx", index=False)
+        for subpath in [r"data\input_operation", "projects"]:
+            output_folder = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX") / subpath / f"ECEMF_T4.3_{region}_{year}"
+            create_folder(output_folder)
+            new_df.to_excel(output_folder / f"OperationScenario_Component_Building_{year}.xlsx", index=False)
 
         # create the scenario table for the flex model
-        scenario_table_for_flex_model(new_building_df=new_df, region=region, year=year)
-
+        start_scenario = scenario_table_for_flex_model(new_building_df=new_df, region=region)
+        start_scenario.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}_{year}" /
+                                f"Scenario_start_{region}_{year}.xlsx", index=False)
     # create plot showing the number of clusters for each category over the years:
     plot_year_nr_clusters(year_number_of_cluster)
 
 
 if __name__ == "__main__":
     main()
-    # todo make clustering for all years (make some overview visualization)
