@@ -678,6 +678,8 @@ def update_city_buildings(probability: pd.DataFrame,
         new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country)
         # with this dataframe we can calculate the new 5R1C parameters:
         new_building_component_df_part, new_combined_building_df_part = Create5R1CParameters(df=new_df_with_5R1C).main()
+        # update the ID Building in 5R1C dataframe because they are spit out starting at 1 from Create5R1CParameters
+        new_building_component_df_part["ID_Building"] = new_combined_building_df_part["ID_Building"]
 
         new_buildings.append(new_combined_building_df_part.drop(columns=["rechoose"]))
         new_5R1C.append(new_building_component_df_part)
@@ -735,4 +737,3 @@ if __name__ == '__main__':
 
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
 
-    # todo boxplot of hwb um zu zeigen wie der Heizwärmebedarf auf grund von renovierung sinkt
