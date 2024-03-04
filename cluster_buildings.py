@@ -32,7 +32,7 @@ def hierarchical_cluster(df: pd.DataFrame):
 
 def kmeans_cluster(df: pd.DataFrame, number_of_cluster: int):
     # define the model
-    kmeans_model = KMeans(n_clusters=number_of_cluster)
+    kmeans_model = KMeans(n_clusters=number_of_cluster, random_state=42)
     # fit the model
     cluster_labels = kmeans_model.fit_predict(df)
     return cluster_labels
@@ -169,27 +169,27 @@ def find_number_of_cluster(min_number: int,
                            sfh_mfh: str):
     k_range = np.arange(min_number, max_number + 1)
     print(f"analyzing {sfh_mfh} cluster")
-    # Silhouette method for KMeans clustering
-    visualizer_silhouette = KElbowVisualizer(KMeans(), k=k_range, timings=False, metric="silhouette")
-    visualizer_silhouette.fit(df_norm)
-    x_values, y_values = visualizer_silhouette.k_values_, visualizer_silhouette.k_scores_
-    plot_score_results(
-        name=f"Silhouette method {sfh_mfh}",
-        x_values=x_values,
-        y_values=y_values,
-    )
-    print(f"saved optimal number of clusters using KMeans and the silhouette method")
+    # # Silhouette method for KMeans clustering
+    # visualizer_silhouette = KElbowVisualizer(KMeans(), k=k_range, timings=False, metric="silhouette")
+    # visualizer_silhouette.fit(df_norm)
+    # x_values, y_values = visualizer_silhouette.k_values_, visualizer_silhouette.k_scores_
+    # plot_score_results(
+    #     name=f"Silhouette method {sfh_mfh}",
+    #     x_values=x_values,
+    #     y_values=y_values,
+    # )
+    # print(f"saved optimal number of clusters using KMeans and the silhouette method")
 
     # Calinski method for KMeans clustering
-    calinski_kmeans = KElbowVisualizer(KMeans(), k=k_range, timings=False, metric="calinski_harabasz")
-    calinski_kmeans.fit(df_norm)
-    x_values, y_values = calinski_kmeans.k_values_, calinski_kmeans.k_scores_
-    plot_score_results(
-        name=f"Calinski method {sfh_mfh}",
-        x_values=x_values,
-        y_values=y_values,
-    )
-    print(f"saved optimal number of clusters using the elbow-calinski KMeans method")
+    # calinski_kmeans = KElbowVisualizer(KMeans(), k=k_range, timings=False, metric="calinski_harabasz")
+    # calinski_kmeans.fit(df_norm)
+    # x_values, y_values = calinski_kmeans.k_values_, calinski_kmeans.k_scores_
+    # plot_score_results(
+    #     name=f"Calinski method {sfh_mfh}",
+    #     x_values=x_values,
+    #     y_values=y_values,
+    # )
+    # print(f"saved optimal number of clusters using the elbow-calinski KMeans method")
 
     # calculate the number of clusters with the davies bouldin statistic
     davies_kmeans = davies_bouldin_analysis(X=df_norm, k_range=k_range)
@@ -256,7 +256,7 @@ def create_new_building_df_from_cluster(number_of_cluster: dict,
         cluster_labels = kmeans_cluster(normalized_df, n_cluster)
 
         # add cluster labels to original df
-        df_orig = old_df.loc[old_df.loc[:, "ID_Building"].isin(cluster_dict[name].index), :]
+        df_orig = old_df.loc[old_df.loc[:, "ID_Building"].isin(cluster_dict[name].index), :].copy()
         df_orig.loc[:, 'Cluster'] = cluster_labels
         # calculate a small dataframe where the buildings are reduced to
         df_grouped = df_orig.groupby("Cluster")
@@ -304,7 +304,34 @@ def load_operation_scenario_ids(city_name: str):
     return values
 
 
-def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) -> None:
+def plot_cluster_dict(dict_dfs: dict, region: str):
+    plot_list_mfh = []
+    plot_list_sfg = []
+    for name, dataframe in dict_dfs.items():
+        dataframe["type"] = name.upper().replace("_", " ")
+        if "mfh" in name.lower():
+            plot_list_mfh.append(dataframe.copy())
+        else:
+            plot_list_sfg.append(dataframe.copy())
+        # drop the type column again because otherwise it stays:
+        dataframe.drop(columns=["type"], inplace=True)
+
+    plot_df_mfh = pd.concat(plot_list_mfh, axis=0).reset_index(drop=True)
+    plot_df_sfh = pd.concat(plot_list_sfg, axis=0).reset_index(drop=True)
+
+    sns.scatterplot(data=plot_df_mfh, x=plot_df_mfh.index, y="Af", hue="type", alpha=0.5)
+    plt.title(f"MFH floor area {region}")
+    plt.savefig(Path("figures") / "MFH_floor_are.svg")
+    plt.show()
+
+    sns.scatterplot(data=plot_df_sfh, x=plot_df_sfh.index, y="Af", hue="type", alpha=0.5)
+    plt.title(f"SFH floor area {region}")
+    plt.savefig(Path("figures") / "SFH_floor_are.svg")
+    plt.show()
+
+
+
+def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str, year: int) -> None:
     """
     create the scenario start file for the flex model
     :param new_building_df: the new_df with the clustered buildings as single buildings
@@ -352,10 +379,6 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
     df_start.drop(df_start.loc[
                   (df_start.loc[:, "ID_PV"] == 1) & (df_start.loc[:, "ID_Battery"] != 1), :
                   ].index, inplace=True)
-    # no heating element when there is no PV
-    df_start.drop(df_start.loc[
-                  (df_start.loc[:, "ID_PV"] == 1) & (df_start.loc[:, "ID_HeatingElement"] != 1), :
-                  ].index, inplace=True)
     # no heating tank when there is no HP
     df_start.drop(df_start.loc[
                   (df_start.loc[:, "ID_Boiler"].isin([1, 4, 5])) & (df_start.loc[:, "ID_SpaceHeatingTank"] != 1), :
@@ -374,14 +397,6 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                   ].index, inplace=True)
     df_start.drop(df_start.loc[
                   (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_SpaceHeatingTank"] == 3), :
-                  ].index, inplace=True)
-
-    # heating element
-    df_start.drop(df_start.loc[
-                  (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_HeatingElement"] == 2), :
-                  ].index, inplace=True)
-    df_start.drop(df_start.loc[
-                  (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_HeatingElement"] == 3), :
                   ].index, inplace=True)
     df_start = df_start.reset_index(drop=True)
 
@@ -416,37 +431,62 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
                                        ]]
 
     scenario_start.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                            f"Scenario_start_{region}.xlsx", index=False)
+                            f"Scenario_start_{region}_{year}.xlsx", index=False)
+
+
+def plot_year_nr_clusters(plot_dict: dict):
+    plot_df = pd.DataFrame.from_dict(
+        data=plot_dict, orient="index", columns=["number"]
+    ).reset_index().rename(columns={"index": "type"})
+    plot_df[['type', 'year']] = plot_df['type'].str.split(' ', expand=True)
+    sns.barplot(data=plot_df,
+                x="type",
+                y="number",
+                hue="year")
+    plt.title("Number of clusters for each year and building type")
+    plt.savefig(Path(r"figures") / "number_of_clusters_year_type.svg")
+    plt.show()
+
 
 
 def main():
     region = "Murcia"
-    df = pd.read_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-        f"OperationScenario_Component_Building_{region}_non_clustered.xlsx"
-    )
-    cluster_dict = create_cluster_dict(df)
-    number_of_cluster = {}  # use davies bouldin as reference
-    for sfh_or_mfh, cluster_df in cluster_dict.items():
-        number = find_number_of_cluster(min_number=5,
-                                        max_number=min([len(cluster_df) - 20, 30]),
-                                        df_norm=normalize_df(cluster_df),
-                                        sfh_mfh=sfh_or_mfh)
-        number_of_cluster[sfh_or_mfh] = number
+    years = [2020, 2030, 2040, 2050]
+    year_number_of_cluster = {}
+    for year in years:
+        df = pd.read_excel(
+            Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+            f"OperationScenario_Component_Building_{region}_non_clustered_{year}.xlsx"
+        )
+        cluster_dict = create_cluster_dict(df)
+        if year == 2020:
+            plot_cluster_dict(cluster_dict, region)
+        number_of_cluster = {}  # use davies bouldin as reference
+        for sfh_or_mfh, cluster_df in cluster_dict.items():
+            number = find_number_of_cluster(min_number=5,
+                                            max_number=min([len(cluster_df) - 20, len(cluster_df)//4, 30]),
+                                            df_norm=normalize_df(cluster_df),
+                                            sfh_mfh=sfh_or_mfh)
+            number_of_cluster[sfh_or_mfh] = number
+            year_number_of_cluster[f"{sfh_or_mfh} {year}"] = number
 
-    new_df = create_new_building_df_from_cluster(number_of_cluster=number_of_cluster,
-                                                 cluster_dict=cluster_dict,
-                                                 old_df=df,
-                                                 region=region)
-    # save the new building df to the FLEX project:
-    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component_Building.xlsx", index=False)
-    new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                    f"OperationScenario_Component_Building.xlsx", index=False)
+        new_df = create_new_building_df_from_cluster(number_of_cluster=number_of_cluster,
+                                                     cluster_dict=cluster_dict,
+                                                     old_df=df,
+                                                     region=region)
+        # save the new building df to the FLEX project:
+        new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{region}" /
+                        f"OperationScenario_Component_Building_{year}.xlsx", index=False)
+        new_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
+                        f"OperationScenario_Component_Building_{year}.xlsx", index=False)
 
-    # create the scenario table for the flex model
-    scenario_table_for_flex_model(new_building_df=new_df, region=region)
+        # create the scenario table for the flex model
+        scenario_table_for_flex_model(new_building_df=new_df, region=region, year=year)
+
+    # create plot showing the number of clusters for each category over the years:
+    plot_year_nr_clusters(year_number_of_cluster)
 
 
 if __name__ == "__main__":
     main()
+    # todo make clustering for all years (make some overview visualization)
