@@ -465,7 +465,7 @@ def main():
         number_of_cluster = {}  # use davies bouldin as reference
         for sfh_or_mfh, cluster_df in cluster_dict.items():
             number = find_number_of_cluster(min_number=5,
-                                            max_number=min([len(cluster_df) - 20, len(cluster_df)//4, 30]),
+                                            max_number=min([len(cluster_df) - 20, len(cluster_df)//4, 20]),
                                             df_norm=normalize_df(cluster_df),
                                             sfh_mfh=sfh_or_mfh)
             number_of_cluster[sfh_or_mfh] = number

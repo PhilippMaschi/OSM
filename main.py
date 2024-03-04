@@ -1,3 +1,5 @@
+import shutil
+
 import numpy as np
 import numpy.random
 import pandas as pd
@@ -363,18 +365,15 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str):
     return df_return
 
 
-def create_boiler_excel(city_name: str):
+def create_boiler_excel() -> pd.DataFrame:
     boiler_dict = {
         "ID_Boiler": [1, 2, 3, 4, 5],
         "type": ["Electric", "Air_HP", "Ground_HP", "no heating", "gas"],
         "carnot_efficiency_factor": [1, 0.4, 0.45, 1, 0.95]
     }
     boiler_df = pd.DataFrame(boiler_dict)
-    boiler_df.to_excel(Path(r"output_data") / f"OperationScenario_Component_Boiler_{city_name}.xlsx")
-    boiler_df.to_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-        f"OperationScenario_Component_Boiler_{city_name}.xlsx", index=False
-    )
+    return boiler_df
+
 
 
 def load_european_population_df(country: str) -> int:
@@ -477,7 +476,7 @@ def generate_heating_schedule():
     return schedule
 
 
-def create_people_at_home_profiles(country: str, city_name: str):
+def create_people_at_home_profiles(city_name: str) -> pd.DataFrame:
     id_hour = np.arange(1, 8761)
     people_at_home_profile_1 = np.full(shape=(8760,), fill_value=1)
     # the second profile is used for people who have no heating
@@ -510,10 +509,9 @@ def create_people_at_home_profiles(country: str, city_name: str):
     df["vehicle_hat_home_profile_1"] = np.zeros(shape=(8760,))
     df["vehicle_distance_profile_1"] = np.zeros(shape=(8760,))
 
-    df.to_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-        f"OperationScenario_BehaviorProfile_{country}.xlsx", index=False
-    )
+    return df
+
+
 
 
 def create_behavior_excel(country: str):
@@ -538,11 +536,7 @@ def create_behavior_excel(country: str):
         "id_vehicle_distance_profile": [1, 1, 1],
     }
     behavior = pd.DataFrame.from_dict(behavior_dict, orient="index").T
-    behavior.to_excel(Path(r"output_data") / f"OperationScenario_Component_Behavior_{country}.xlsx", index=False)
-    behavior.to_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-                      f"OperationScenario_Component_Behavior_{country}.xlsx", index=False
-    )
+    return behavior
 
 
 def convert_to_float(column):
@@ -595,7 +589,7 @@ def create_2020_baseline_building_distribution(region: dict,
         index=False
     )
     total_df.to_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}" /
+        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}_{year}" /
         f"{year}_combined_building_df_{city_name}_non_clustered.xlsx",
         index=False
     )
@@ -606,16 +600,9 @@ def create_2020_baseline_building_distribution(region: dict,
     coordinate_df.to_file(Path(r"output_data") / f"{year}_building_coordinates_{city_name}.shp",
                           driver="ESRI Shapefile")
     coordinate_df.to_csv(Path(r"output_data") / f"{year}_Building_coordinates_{city_name}.csv", index=False)
-    coordinate_df.to_csv(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}"
+    coordinate_df.to_csv(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}_{year}"
                          / f"{year}_Building_coordinates_{city_name}.csv", index=False)
 
-    # create the boiler table for the 5R1C model:
-    create_boiler_excel(city_name=city_name)
-    # create Behavior table for 5R1C model:
-    create_behavior_excel(country=country_name)
-    # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
-    # reflected in the target temperatures of ID Behavior 2 in the behavior table
-    create_people_at_home_profiles(country=country_name, city_name=city_name)
 
 
 def update_city_buildings(probability: pd.DataFrame,
@@ -701,6 +688,38 @@ def update_city_buildings(probability: pd.DataFrame,
     print(f"saved building xlsx for {new_year}")
 
 
+def save_to_all_years_in_flex_folders(df_to_save: pd.DataFrame, years: list, filename: str):
+    df_to_save.to_excel(Path(r"output_data") / f"{filename.replace('.xlsx', '')}_{city_name}.xlsx")
+    for y in years:
+        df_to_save.to_excel(
+            Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}_{y}" /
+            f"{filename}", index=False
+        )
+
+
+def copy_flex_input_files_to_year_runs(years: list):
+    orig_file_location = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation\ECEMF_T4.3_Murcia")
+    files_to_copy = [
+        "OperationScenario_Component_HeatingElement.xlsx",
+        "OperationScenario_Component_PV.xlsx",
+        "OperationScenario_RegionWeather.xlsx",
+        "OperationScenario_DrivingProfile_Distance.csv",
+        "OperationScenario_DrivingProfile_ParkingHome.csv",
+        "OperationScenario_Component_Region.xlsx",
+        "OperationScenario_Component_SpaceCoolingTechnology.xlsx",
+        "OperationScenario_EnergyPrice.xlsx",
+        "OperationScenario_Component_Battery.xlsx",
+        "OperationScenario_Component_HotWaterTank.xlsx",
+        "OperationScenario_Component_SpaceHeatingTank.xlsx",
+        "OperationScenario_Component_EnergyPrice.xlsx",
+        "OperationScenario_Component_Vehicle.xlsx"
+    ]
+    for y in years:
+        destination_path = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}_{y}"
+        for file in files_to_copy:
+            shutil.copy(src=orig_file_location / file, dst=destination_path / file)
+
+
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
     region = MURCIA
@@ -735,5 +754,28 @@ if __name__ == '__main__':
 
 
 
+    # create the boiler table for the 5R1C model:
+    boiler_df = create_boiler_excel()
+    # create Behavior table for 5R1C model:
+    behavior_df = create_behavior_excel(country=country_name)
+    # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
+    # reflected in the target temperatures of ID Behavior 2 in the behavior table
+    behavior_profile = create_people_at_home_profiles(city_name=city_name)
+
+    save_to_all_years_in_flex_folders(df_to_save=boiler_df,
+                                      years=[2020] + years,
+                                      filename="OperationScenario_Component_Boiler.xlsx")
+    save_to_all_years_in_flex_folders(df_to_save=behavior_df,
+                                      years=[2020] + years,
+                                      filename="OperationScenario_Component_Behavoir.xlsx")
+    save_to_all_years_in_flex_folders(df_to_save=behavior_profile,
+                                      years=[2020] + years,
+                                      filename="OperationScenario_BehaviorProfile.xlsx")
+
+    # all other input files for FLEX are copied from ECEMF Murcia for Murcia because they were created manually:
+    copy_flex_input_files_to_year_runs(years)
+
+    #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
+    #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
