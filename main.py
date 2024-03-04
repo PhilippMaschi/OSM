@@ -767,7 +767,7 @@ if __name__ == '__main__':
                                       filename="OperationScenario_Component_Boiler.xlsx")
     save_to_all_years_in_flex_folders(df_to_save=behavior_df,
                                       years=[2020] + years,
-                                      filename="OperationScenario_Component_Behavoir.xlsx")
+                                      filename="OperationScenario_Component_Behavior.xlsx")
     save_to_all_years_in_flex_folders(df_to_save=behavior_profile,
                                       years=[2020] + years,
                                       filename="OperationScenario_BehaviorProfile.xlsx")
