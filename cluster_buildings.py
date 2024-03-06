@@ -379,6 +379,13 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
     df_start.drop(df_start.loc[
                   (df_start.loc[:, "ID_PV"] == 1) & (df_start.loc[:, "ID_Battery"] != 1), :
                   ].index, inplace=True)
+    # correct batteries SFH and MFH
+    df_start.drop(df_start.loc[
+                  (df_start.loc[:, "type"] == "MFH") & (df_start.loc[:, "ID_Battery"] == 2), :
+                  ].index, inplace=True)
+    df_start.drop(df_start.loc[
+                  (df_start.loc[:, "type"] == "SFH") & (df_start.loc[:, "ID_Battery"] == 3), :
+                  ].index, inplace=True)
     # no heating tank when there is no HP
     df_start.drop(df_start.loc[
                   (df_start.loc[:, "ID_Boiler"].isin([1, 4, 5])) & (df_start.loc[:, "ID_SpaceHeatingTank"] != 1), :
