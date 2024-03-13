@@ -65,10 +65,10 @@ BUILDING_SEGMENT_COLUMNS = {
     "distribution_dhw_index": int,
     "pv_system_index": int,
     "energy_carrier": int,
-    "annual_energy_costs_hs": "float32",
-    "total_annual_cost_hs": "float32",
-    "annual_energy_costs_dhw": "float32",
-    "total_annual_cost_dhw": "float32",
+    # "annual_energy_costs_hs": "float32",
+    # "total_annual_cost_hs": "float32",
+    # "annual_energy_costs_dhw": "float32",
+    # "total_annual_cost_dhw": "float32",
     "hs_efficiency": "float32",
     "dhw_efficiency": "float32",
     "size_pv_system": "float32",
@@ -243,11 +243,11 @@ def get_number_heating_systems(df: pd.DataFrame) -> dict:
     return numbers.to_dict()
 
 
-def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: str, year: int) -> pd.DataFrame:
-    hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001_buildings_{country.lower()}.hdf5"
+def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: str, year: int, scen: str) -> pd.DataFrame:
+    hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001_buildings_{country.lower()}_{scen}.hdf5"
     bc_df = hdf5_to_pandas(hdf5_f, f"BC_{year}", BUILDING_CLASS_COLUMNS)
     bssh_df = hdf5_to_pandas(hdf5_f, f"BSSH_{year}", BUILDING_SEGMENT_COLUMNS)
-    # reomve multiindex
+    # remove multiindex
     bssh_df.columns = bssh_df.columns.map(''.join)
     bc_df.columns = bc_df.columns.map(''.join)
     # change columns to series:
@@ -258,15 +258,6 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
     if country.lower() == "spain":
         bc = filter_only_certain_region_buildings(bc, invert_city_filter_name)
         bssh = filter_only_certain_region_buildings(bssh, invert_city_filter_name)
-
-    # columns where numbers are summed up (PV and number of buildings)
-    # adding_names = [name for name in bc.columns if "number" in name] + ["number_of_buildings"]
-    # # columns to merge: [2:] so index and name are left out
-    # merging_names = [
-    #                     name for name in bc.columns if "PV" and "number" not in name and "construction" not in name
-    #                 ][2:] + adding_names[:3]
-    # # except number of persons and number of dwellings ([3:]) left out
-    # adding_names = adding_names[3:]
 
     # remove duplicated rows of the bssh dataframe (don't know why they exist)
     duplicate_rows = bssh.drop(columns=["index", "name"]).duplicated()
@@ -292,9 +283,9 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
     return final_bc
 
 
-def get_dynamic_calc_data(year: int, country: str) -> pd.DataFrame:
+def get_dynamic_calc_data(year: int, country: str, scen: str) -> pd.DataFrame:
     path_to_dynamic_data = Path(
-        r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"dynamic_calc_data_bc_{year}_{country}.npz"
+        r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001__dynamic_calc_data_bc_{year}_{country}_{scen}.npz"
     npz = np.load(path_to_dynamic_data)
     column_names = npz["arr_1"]
     data = npz["arr_0"]
@@ -303,9 +294,9 @@ def get_dynamic_calc_data(year: int, country: str) -> pd.DataFrame:
     return df
 
 
-def get_probabilities_for_building_to_change(old_year: int, new_year: int) -> (pd.DataFrame, pd.DataFrame):
-    buildings_2020 = get_number_of_buildings_from_invert("Sevilla", "spain", old_year)
-    buildings_2030 = get_number_of_buildings_from_invert("Sevilla", "spain", new_year)
+def get_probabilities_for_building_to_change(old_year: int, new_year: int, scen: str) -> (pd.DataFrame, pd.DataFrame):
+    buildings_2020 = get_number_of_buildings_from_invert("Sevilla", "spain", old_year, scen=scen)
+    buildings_2030 = get_number_of_buildings_from_invert("Sevilla", "spain", new_year, scen=scen)
 
     # for every building in 2020 the total number of buildings will be compared with the same bc index of 2030
     # the difference in number of buildings is and indicator of how probable it is that the building was renovated

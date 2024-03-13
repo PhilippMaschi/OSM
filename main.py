@@ -12,6 +12,7 @@ import plotly.express as px
 from pathlib import Path
 import h5py
 from load_invert_data import get_number_of_buildings_from_invert, get_dynamic_calc_data, get_probabilities_for_building_to_change
+from cluster_buildings import main as cluster_main
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import warnings
@@ -260,11 +261,12 @@ def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.Data
     return selection
 
 
-def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_city_filter_name: str, year: int):
+def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_city_filter_name: str, year: int, scen: str):
     # load invert table for Sevilla buildings
     df_invert = get_number_of_buildings_from_invert(invert_city_filter_name=invert_city_filter_name,
                                                     country=country,
-                                                    year=year)
+                                                    year=year,
+                                                    scen=scen)
     df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
                                               df_invert.loc[:, "construction_period_end"].astype(str)
     # drop the rows where buildings are built between 1900-1980 etc.
@@ -324,12 +326,9 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_cit
     return final_df
 
 
-def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: str) -> pd.DataFrame:
+def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: str, scen: str) -> pd.DataFrame:
     # load dynamic calc data
-    try:
-        dynamic_calc = pd.read_csv(Path(f"input_data\dynamic_calc_data_bc_{year}_Spain.csv"), sep=";")
-    except:
-        dynamic_calc = get_dynamic_calc_data(year, country)
+    dynamic_calc = get_dynamic_calc_data(year, country, scen)
     # map the CM_Factor and the Am_factor to the df through the bc_index:
     if not "bc_index" in df.columns:
         df = df.rename(columns={"index": "bc_index"})
@@ -341,7 +340,7 @@ def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: 
     return merged_df
 
 
-def calculate_5R1C_necessary_parameters(df, year: int, country: str):
+def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
     # number of floors
     df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
     # height of the building
@@ -355,7 +354,7 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str):
     df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
     # ration of adjacent to not adjacent (to compare it to invert later)
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
-    df_return = get_parameters_from_dynamic_calc_data(df, year, country)
+    df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
 
     # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
     # of persons per dwelling from invert
@@ -497,13 +496,11 @@ def create_people_at_home_profiles(city_name: str) -> pd.DataFrame:
         df[f"people_at_home_profile_{i+3}"] = generate_heating_schedule()
 
     hot_water_profile = pd.read_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-        "HotWaterProfile.xlsx"
+        Path(r"input_data") / f"FLEX_scenario_files_{city_name}" / "HotWaterProfile.xlsx"
     )
     df["hot_water_demand_profile_1"] = hot_water_profile
     appliance_profile = pd.read_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}" /
-        "Appliance_Profile.xlsx"
+        Path(r"input_data") / f"FLEX_scenario_files_{city_name}" / "Appliance_Profile.xlsx"
     )
     df["appliance_electricity_demand_profile_1"] = appliance_profile
     df["vehicle_hat_home_profile_1"] = np.zeros(shape=(8760,))
@@ -543,9 +540,9 @@ def convert_to_float(column):
     return pd.to_numeric(column, errors="ignore")
 
 
-def get_related_5R1C_parameters(df: pd.DataFrame, year: int, country_name: str) -> (pd.DataFrame, pd.DataFrame):
+def get_related_5R1C_parameters(df: pd.DataFrame, year: int, country_name: str, scen: str) -> (pd.DataFrame, pd.DataFrame):
     # calculate all necessary parameters for the 5R1C model:
-    final_df = calculate_5R1C_necessary_parameters(df, year, country_name)
+    final_df = calculate_5R1C_necessary_parameters(df, year, country_name, scen)
 
     # create the dataframe with 5R1C parameters
     building_df, total_df = Create5R1CParameters(df=final_df).main()
@@ -555,6 +552,7 @@ def get_related_5R1C_parameters(df: pd.DataFrame, year: int, country_name: str) 
 def create_2020_baseline_building_distribution(region: dict,
                                                city_name: str,
                                                country_name: str,
+                                               scen: str
                                                ):
     year = 2020
     shp_filename = Path(f"merged_osm_geom_{city_name}.shp")
@@ -569,15 +567,16 @@ def create_2020_baseline_building_distribution(region: dict,
     combined_df = add_invert_data_to_gdf_table(big_df,
                                                country=country_name,
                                                invert_city_filter_name="Sevilla",
-                                               year=year)
+                                               year=year,
+                                               scen=scen)
 
     # turn them to numeric
     numeric_df = combined_df.apply(convert_to_float)
-    building_df, total_df = get_related_5R1C_parameters(df=numeric_df, year=year, country_name=country_name)
+    building_df, total_df = get_related_5R1C_parameters(df=numeric_df, year=year, country_name=country_name, scen=scen)
 
     # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
     building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}.xlsx",
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}_{scen}.xlsx",
         index=False
     )
     print("saved OperationScenario_Component_Building to xlsx")
@@ -585,24 +584,16 @@ def create_2020_baseline_building_distribution(region: dict,
     # add representative point for each building
     total_df['rep_point'] = total_df['geometry'].apply(lambda x: x.representative_point())
     total_df.to_excel(
-        Path(f"output_data") / f"{year}_combined_building_df_{city_name}_non_clustered.xlsx",
-        index=False
-    )
-    total_df.to_excel(
-        Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}_{year}" /
-        f"{year}_combined_building_df_{city_name}_non_clustered.xlsx",
+        Path(f"output_data") / f"{year}_{scen}_combined_building_df_{city_name}_non_clustered.xlsx",
         index=False
     )
     print("saved dataframe with all information to xlsx")
 
     # create csv file with coordinates and shp file with dots to check in QGIS
     coordinate_df = gpd.GeoDataFrame(total_df[["rep_point", "ID_Building"]]).set_geometry("rep_point")
-    coordinate_df.to_file(Path(r"output_data") / f"{year}_building_coordinates_{city_name}.shp",
+    coordinate_df.to_file(Path(r"output_data") / f"{year}_{scen}_building_coordinates_{city_name}.shp",
                           driver="ESRI Shapefile")
-    coordinate_df.to_csv(Path(r"output_data") / f"{year}_Building_coordinates_{city_name}.csv", index=False)
-    coordinate_df.to_csv(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{city_name}_{year}"
-                         / f"{year}_Building_coordinates_{city_name}.csv", index=False)
-
+    coordinate_df.to_csv(Path(r"output_data") / f"{year}_{scen}_Building_coordinates_{city_name}.csv", index=False)
 
 
 def update_city_buildings(probability: pd.DataFrame,
@@ -610,7 +601,8 @@ def update_city_buildings(probability: pd.DataFrame,
                           old_building_df: pd.DataFrame,
                           old_5R1C_df: pd.DataFrame,
                           new_year: int,
-                          country: str):
+                          country: str,
+                          scen: str):
     new_buildings = []
     new_5R1C = []
 
@@ -662,7 +654,7 @@ def update_city_buildings(probability: pd.DataFrame,
         new_df.loc[:, new_buildings_df.columns] = new_buildings_df.values
         # drop the CM factor and Am factor because they need to be replaced by the new buildings:
         new_df.drop(columns=["CM_factor", "Am_factor"], inplace=True)
-        new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country)
+        new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country, scen=scen)
         # with this dataframe we can calculate the new 5R1C parameters:
         new_building_component_df_part, new_combined_building_df_part = Create5R1CParameters(df=new_df_with_5R1C).main()
         # update the ID Building in 5R1C dataframe because they are spit out starting at 1 from Create5R1CParameters
@@ -678,27 +670,24 @@ def update_city_buildings(probability: pd.DataFrame,
     new_building_df.sort_values(by="ID_Building", inplace=True)
     # save the dataframes
     new_total_df.to_excel(
-        Path(f"output_data") / f"{new_year}_combined_building_df_{city_name}_non_clustered.xlsx",
+        Path(f"output_data") / f"{new_year}_{scen}_combined_building_df_{city_name}_non_clustered.xlsx",
         index=False
     )
     new_building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}.xlsx",
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}_{scen}.xlsx",
         index=False
     )
     print(f"saved building xlsx for {new_year}")
 
 
-def save_to_all_years_in_flex_folders(df_to_save: pd.DataFrame, years: list, filename: str):
-    df_to_save.to_excel(Path(r"output_data") / f"{filename.replace('.xlsx', '')}_{city_name}.xlsx")
-    for y in years:
-        df_to_save.to_excel(
-            Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}_{y}" /
-            f"{filename}", index=False
-        )
+def save_to_all_years_in_flex_folders(df_to_save: pd.DataFrame, years: list, filename: str, scenarios: list):
+    for s in scenarios:
+        for y in years:
+            folder = Path("output_data") / f"ECEMF_T4.3_{city_name}_{y}_{s}"
+            df_to_save.to_excel(folder / f"{filename}", index=False)
 
 
-def copy_flex_input_files_to_year_runs(years: list):
-    orig_file_location = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation\ECEMF_T4.3_Murcia")
+def copy_flex_input_files_to_year_runs(orig_file_location: Path, destination_path: Path):
     files_to_copy = [
         "OperationScenario_Component_HeatingElement.xlsx",
         "OperationScenario_Component_PV.xlsx",
@@ -714,10 +703,20 @@ def copy_flex_input_files_to_year_runs(years: list):
         "OperationScenario_Component_EnergyPrice.xlsx",
         "OperationScenario_Component_Vehicle.xlsx"
     ]
-    for y in years:
-        destination_path = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}_{y}"
-        for file in files_to_copy:
-            shutil.copy(src=orig_file_location / file, dst=destination_path / file)
+    for file in files_to_copy:
+        shutil.copy(src=orig_file_location / file, dst=destination_path / file)
+
+
+def create_flex_input_folders(region: str, years: list, scenarios: list):
+    flex_scenario_folder = Path(r"input_data") / f"FLEX_scenario_files_{region}"
+    for y in [2020] + years:
+        for s in scenarios:
+            folder = Path("output_data") / f"ECEMF_T4.3_{city_name}_{y}_{s}"
+            folder.mkdir(exist_ok=True)
+            copy_flex_input_files_to_year_runs(
+                orig_file_location=flex_scenario_folder,
+                destination_path=folder,
+            )
 
 
 # Press the green button in the gutter to run the script.
@@ -726,34 +725,42 @@ if __name__ == '__main__':
     city_name = region["city_name"]
     country_name = "Spain"
     years = [2030, 2040, 2050]
-    # generate the baseline:
-    create_2020_baseline_building_distribution(region=region, city_name=city_name, country_name=country_name)
-    # now generate iteratively the building files for the years based on the baseline:
-    np.random.seed(42)
-    for i, new_year in enumerate(years):
-        if i == 0:
-            old_year = 2020
-        else:
-            old_year = years[i-1]
-        propb, bc_2030_new_pool = get_probabilities_for_building_to_change(old_year=old_year, new_year=new_year)
-        # with the choices go into the 2020 murcia df and for all building types that have choice=True select a new
-        # building from the new pool:
+    scenarios = ["moderate_eff", "high_eff"]
+    for scenario in scenarios:
+        # generate the baseline:
+        create_2020_baseline_building_distribution(region=region,
+                                                   city_name=city_name,
+                                                   country_name=country_name,
+                                                   scen=scenario)
+        # now generate iteratively the building files for the years based on the baseline:
+        np.random.seed(42)
+        for i, new_year in enumerate(years):
+            if i == 0:
+                old_year = 2020
+            else:
+                old_year = years[i-1]
+            propb, bc_new_pool = get_probabilities_for_building_to_change(old_year=old_year,
+                                                                          new_year=new_year,
+                                                                          scen=scenario)
+            # with the choices go into the 2020 murcia df and for all building types that have choice=True select a new
+            # building from the new pool:
 
-        # load the old non clustered buildings:
-        old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                      f"{old_year}_combined_building_df_Murcia_non_clustered.xlsx")
-        old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                 f"OperationScenario_Component_Building_Murcia_non_clustered_{old_year}.xlsx")
+            # load the old non clustered buildings:
+            old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                                          f"{old_year}_{scenario}_combined_building_df_Murcia_non_clustered.xlsx")
+            old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                                     f"OperationScenario_Component_Building_Murcia_non_clustered_{old_year}_{scenario}.xlsx")
 
-        update_city_buildings(probability=propb,
-                              new_building_pool=bc_2030_new_pool,
-                              old_building_df=old_buildings,
-                              old_5R1C_df=old_5R1C,
-                              new_year=new_year,
-                              country=country_name)
+            update_city_buildings(probability=propb,
+                                  new_building_pool=bc_new_pool,
+                                  old_building_df=old_buildings,
+                                  old_5R1C_df=old_5R1C,
+                                  new_year=new_year,
+                                  country=country_name,
+                                  scen=scenario)
 
-
-
+    # prepare the FLEX runs:
+    create_flex_input_folders(region=region["city_name"], years=years, scenarios=scenarios)
     # create the boiler table for the 5R1C model:
     boiler_df = create_boiler_excel()
     # create Behavior table for 5R1C model:
@@ -761,21 +768,25 @@ if __name__ == '__main__':
     # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
     # reflected in the target temperatures of ID Behavior 2 in the behavior table
     behavior_profile = create_people_at_home_profiles(city_name=city_name)
-
+    # create FLEX starting folders:
     save_to_all_years_in_flex_folders(df_to_save=boiler_df,
                                       years=[2020] + years,
-                                      filename="OperationScenario_Component_Boiler.xlsx")
+                                      filename="OperationScenario_Component_Boiler.xlsx",
+                                      scenarios=scenarios)
     save_to_all_years_in_flex_folders(df_to_save=behavior_df,
                                       years=[2020] + years,
-                                      filename="OperationScenario_Component_Behavior.xlsx")
+                                      filename="OperationScenario_Component_Behavior.xlsx",
+                                      scenarios=scenarios)
     save_to_all_years_in_flex_folders(df_to_save=behavior_profile,
                                       years=[2020] + years,
-                                      filename="OperationScenario_BehaviorProfile.xlsx")
+                                      filename="OperationScenario_BehaviorProfile.xlsx",
+                                      scenarios=scenarios)
 
-    # all other input files for FLEX are copied from ECEMF Murcia for Murcia because they were created manually:
-    copy_flex_input_files_to_year_runs(years)
 
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    print("starting clustering procedure")
+    cluster_main(region=city_name, years=years, scenarios=scenarios)
+    # Then the data has to be copied from the respective FLEX folder from OSM/output_data to the FLEX repo.
 

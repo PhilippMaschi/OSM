@@ -126,7 +126,16 @@ def davies_bouldin_analysis(X, k_range: np.array) -> (list, list):
     return davies_bouldin_kmeans
 
 
-def plot_davies_bouldin_index(bouldin_list: list, k_range: np.array, min_davies: int, algorithm: str) -> None:
+def plot_davies_bouldin_index(
+        bouldin_list: list,
+        k_range: np.array,
+        min_davies: int,
+        algorithm: str,
+        year: int,
+        scen: str,
+        region: str
+) -> None:
+    fig = plt.figure()
     plt.plot(k_range, bouldin_list, label="davies bouldin index", marker="D")
     plt.xlabel("k")
     plt.ylabel("davies bouldin value")
@@ -137,9 +146,12 @@ def plot_davies_bouldin_index(bouldin_list: list, k_range: np.array, min_davies:
                linestyles="--", colors="black")
     plt.legend()
     plt.grid()
-    plt.title(f"Davies Bouldin score for {algorithm} Clustering")
-    plt.savefig(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\figures") / f"Davies_Bouldin_analysis_{algorithm}.png")
-    plt.show()
+    plt.title(f"Davies Bouldin score for {algorithm} Clustering {year} {scen}")
+    figure_folder = Path(r"figures") / f"cluster_{region}"
+    create_folder(figure_folder)
+    plt.savefig(figure_folder / f"Davies_Bouldin_analysis_{algorithm}_{year}_{scen}.png")
+    # plt.show()
+    plt.close(fig)
 
 
 def plot_score_results(name: str, x_values: list, y_values: list):
@@ -166,7 +178,11 @@ def plot_score_results(name: str, x_values: list, y_values: list):
 def find_number_of_cluster(min_number: int,
                            max_number: int,
                            df_norm: pd.DataFrame,
-                           sfh_mfh: str):
+                           sfh_mfh: str,
+                           year: int,
+                           scen: str,
+                           region: str,
+                           ):
     k_range = np.arange(min_number, max_number + 1)
     print(f"analyzing {sfh_mfh} cluster")
     # # Silhouette method for KMeans clustering
@@ -198,9 +214,13 @@ def find_number_of_cluster(min_number: int,
     plot_davies_bouldin_index(bouldin_list=davies_kmeans,
                               k_range=k_range,
                               min_davies=lowest_bouldin_kmeans,
-                              algorithm=f"KMeans_{sfh_mfh}")
+                              algorithm=f"KMeans_{sfh_mfh}",
+                              year=year,
+                              scen=scen,
+                              region=region,
+                              )
 
-    print(f"optimal number of cluster using davies bouldin and KMeans {sfh_mfh}: {lowest_bouldin_kmeans}")
+    print(f"optimal number of cluster using davies bouldin and KMeans {sfh_mfh} {year} {scen}: {lowest_bouldin_kmeans}")
     return lowest_bouldin_kmeans
 
 
@@ -227,16 +247,17 @@ def create_cluster_dict(dataframe: pd.DataFrame) -> dict:
     }
 
 
-def save_ids_from_each_cluster(counted_ids: dict, region: str) -> None:
+def save_ids_from_each_cluster(counted_ids: dict, region: str, year: int) -> None:
     reference_ids_df = pd.DataFrame.from_dict(counted_ids, orient="index").T
-    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}" /
-                              f"Original_Building_IDs_to_clusters_{region}.xlsx", index=False)
+    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}_{year}" /
+                              f"Original_Building_IDs_to_clusters_{region}_{year}.xlsx", index=False)
 
 
 def create_new_building_df_from_cluster(number_of_cluster: dict,
                                         cluster_dict: dict,
                                         old_df: pd.DataFrame,
-                                        region: str
+                                        region: str,
+                                        year: int
                                         ) -> pd.DataFrame:
     """
     create a new building dataframe: instead of 5000 buildings the mean of each cluster
@@ -282,7 +303,7 @@ def create_new_building_df_from_cluster(number_of_cluster: dict,
         show_heatmap(cluster_means, name)
 
     new_df.loc[:, "supply_temperature"] = 38
-    save_ids_from_each_cluster(counted_ids=count_ids, region=region)
+    save_ids_from_each_cluster(counted_ids=count_ids, region=region, year=year)
     return new_df
 
 
@@ -295,7 +316,7 @@ def load_operation_scenario_ids(city_name: str):
         "ID_Boiler",
     ]  # space cooling is done in db_init
     pre_name = "OperationScenario_Component_"
-    path = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\data\input_operation") / f"ECEMF_T4.3_{city_name}"
+    path = Path(r"input_data") / f"FLEX_scenario_files_{city_name}"
     values = {}
     for component_id in list_of_ids:
         xlsx_name = pre_name + component_id.replace("ID_", "") + ".xlsx"
@@ -328,7 +349,6 @@ def plot_cluster_dict(dict_dfs: dict, region: str):
     plt.title(f"SFH floor area {region}")
     plt.savefig(Path("figures") / "SFH_floor_are.svg")
     plt.show()
-
 
 
 def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) -> pd.DataFrame:
@@ -439,7 +459,7 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
     return scenario_start
 
 
-def plot_year_nr_clusters(plot_dict: dict):
+def plot_year_nr_clusters(plot_dict: dict, scen: str):
     plot_df = pd.DataFrame.from_dict(
         data=plot_dict, orient="index", columns=["number"]
     ).reset_index().rename(columns={"index": "type"})
@@ -448,8 +468,8 @@ def plot_year_nr_clusters(plot_dict: dict):
                 x="type",
                 y="number",
                 hue="year")
-    plt.title("Number of clusters for each year and building type")
-    plt.savefig(Path(r"figures") / "number_of_clusters_year_type.svg")
+    plt.title(f"Number of clusters for each year and building type in {scen}")
+    plt.savefig(Path(r"figures") / f"number_of_clusters_year_type_{scen}.svg")
     plt.show()
 
 
@@ -457,44 +477,52 @@ def create_folder(folder_path: Path):
     if not folder_path.exists():
         folder_path.mkdir(parents=True)
 
-def main():
-    region = "Murcia"
-    years = [2020, 2030, 2040, 2050]
+
+def main(region: str, years: list, scenarios: list):
     year_number_of_cluster = {}
-    for year in years:
-        df = pd.read_excel(
-            Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-            f"OperationScenario_Component_Building_{region}_non_clustered_{year}.xlsx"
-        )
-        cluster_dict = create_cluster_dict(df)
-        if year == 2020:
-            plot_cluster_dict(cluster_dict, region)
-        number_of_cluster = {}  # use davies bouldin as reference
-        for sfh_or_mfh, cluster_df in cluster_dict.items():
-            number = find_number_of_cluster(min_number=5,
-                                            max_number=min([len(cluster_df) - 20, len(cluster_df)//4, 20]),
-                                            df_norm=normalize_df(cluster_df),
-                                            sfh_mfh=sfh_or_mfh)
-            number_of_cluster[sfh_or_mfh] = number
-            year_number_of_cluster[f"{sfh_or_mfh} {year}"] = number
+    for scenario in scenarios:
+        for year in years:
+            df = pd.read_excel(
+                Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                f"OperationScenario_Component_Building_{region}_non_clustered_{year}_{scenario}.xlsx"
+            )
+            cluster_dict = create_cluster_dict(df)
+            if year == 2020:
+                plot_cluster_dict(cluster_dict, region)
+            number_of_cluster = {}  # use davies bouldin as reference
+            for sfh_or_mfh, cluster_df in cluster_dict.items():
+                number = find_number_of_cluster(min_number=5,
+                                                max_number=min([len(cluster_df) - 20, len(cluster_df)//4, 20]),
+                                                df_norm=normalize_df(cluster_df),
+                                                sfh_mfh=sfh_or_mfh,
+                                                year=year,
+                                                scen=scenario,
+                                                region=region
+                                                )
+                number_of_cluster[sfh_or_mfh] = number
+                year_number_of_cluster[f"{sfh_or_mfh} {year}"] = number
 
-        new_df = create_new_building_df_from_cluster(number_of_cluster=number_of_cluster,
-                                                     cluster_dict=cluster_dict,
-                                                     old_df=df,
-                                                     region=region)
-        # save the new building df to the FLEX project:
-        for subpath in [r"data\input_operation", "projects"]:
-            output_folder = Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX") / subpath / f"ECEMF_T4.3_{region}_{year}"
+            new_df = create_new_building_df_from_cluster(number_of_cluster=number_of_cluster,
+                                                         cluster_dict=cluster_dict,
+                                                         old_df=df,
+                                                         region=region,
+                                                         year=year)
+            # save the new building df to the FLEX project:
+            output_folder = Path("output_data") / f"ECEMF_T4.3_{region}_{year}_{scenario}"
             create_folder(output_folder)
-            new_df.to_excel(output_folder / f"OperationScenario_Component_Building_{year}.xlsx", index=False)
+            new_df.to_excel(output_folder / f"OperationScenario_Component_Building.xlsx",
+                            index=False)
 
-        # create the scenario table for the flex model
-        start_scenario = scenario_table_for_flex_model(new_building_df=new_df, region=region)
-        start_scenario.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}_{year}" /
-                                f"Scenario_start_{region}_{year}.xlsx", index=False)
-    # create plot showing the number of clusters for each category over the years:
-    plot_year_nr_clusters(year_number_of_cluster)
+            # create the scenario table for the flex model
+            start_scenario = scenario_table_for_flex_model(new_building_df=new_df, region=region)
+            start_scenario.to_excel(output_folder / f"Scenario_start_{region}_{year}_{scenario}.xlsx", index=False)
+        # create plot showing the number of clusters for each category over the years:
+        plot_year_nr_clusters(year_number_of_cluster, scenario)
 
 
 if __name__ == "__main__":
-    main()
+    region = "Murcia"
+    years = [2020, 2030, 2040, 2050]
+    scenarios = ["high_eff", "moderate_eff"]
+
+    main(region, years, scenarios)
