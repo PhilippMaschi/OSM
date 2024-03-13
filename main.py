@@ -579,12 +579,16 @@ def create_2020_baseline_building_distribution(region: dict,
         Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}_{scen}.xlsx",
         index=False
     )
+    building_df.to_excel(
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}_{scen}.xlsx",
+        index=False
+    )
     print("saved OperationScenario_Component_Building to xlsx")
     total_df.loc[:, "ID_Building"] = np.arange(1, total_df.shape[0] + 1)
     # add representative point for each building
     total_df['rep_point'] = total_df['geometry'].apply(lambda x: x.representative_point())
     total_df.to_excel(
-        Path(f"output_data") / f"{year}_{scen}_combined_building_df_{city_name}_non_clustered.xlsx",
+        Path(f"output_data") / f"ECEMF_T4.3_{region}_{year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
     )
     print("saved dataframe with all information to xlsx")
@@ -709,7 +713,7 @@ def copy_flex_input_files_to_year_runs(orig_file_location: Path, destination_pat
 
 def create_flex_input_folders(region: str, years: list, scenarios: list):
     flex_scenario_folder = Path(r"input_data") / f"FLEX_scenario_files_{region}"
-    for y in [2020] + years:
+    for y in years:
         for s in scenarios:
             folder = Path("output_data") / f"ECEMF_T4.3_{city_name}_{y}_{s}"
             folder.mkdir(exist_ok=True)
@@ -760,7 +764,7 @@ if __name__ == '__main__':
                                   scen=scenario)
 
     # prepare the FLEX runs:
-    create_flex_input_folders(region=region["city_name"], years=years, scenarios=scenarios)
+    create_flex_input_folders(region=region["city_name"], years=[2020] + years, scenarios=scenarios)
     # create the boiler table for the 5R1C model:
     boiler_df = create_boiler_excel()
     # create Behavior table for 5R1C model:
