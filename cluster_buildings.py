@@ -247,9 +247,9 @@ def create_cluster_dict(dataframe: pd.DataFrame) -> dict:
     }
 
 
-def save_ids_from_each_cluster(counted_ids: dict, region: str, year: int) -> None:
+def save_ids_from_each_cluster(counted_ids: dict, region: str, year: int, scen: str) -> None:
     reference_ids_df = pd.DataFrame.from_dict(counted_ids, orient="index").T
-    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\FLEX\projects") / f"ECEMF_T4.3_{region}_{year}" /
+    reference_ids_df.to_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") / f"ECEMF_T4.3_{region}_{year}_{scen}" /
                               f"Original_Building_IDs_to_clusters_{region}_{year}.xlsx", index=False)
 
 
@@ -257,7 +257,8 @@ def create_new_building_df_from_cluster(number_of_cluster: dict,
                                         cluster_dict: dict,
                                         old_df: pd.DataFrame,
                                         region: str,
-                                        year: int
+                                        year: int,
+                                        scen: str
                                         ) -> pd.DataFrame:
     """
     create a new building dataframe: instead of 5000 buildings the mean of each cluster
@@ -303,7 +304,7 @@ def create_new_building_df_from_cluster(number_of_cluster: dict,
         show_heatmap(cluster_means, name)
 
     new_df.loc[:, "supply_temperature"] = 38
-    save_ids_from_each_cluster(counted_ids=count_ids, region=region, year=year)
+    save_ids_from_each_cluster(counted_ids=count_ids, region=region, year=year, scen=scen)
     return new_df
 
 
@@ -483,7 +484,7 @@ def main(region: str, years: list, scenarios: list):
     for scenario in scenarios:
         for year in years:
             df = pd.read_excel(
-                Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
+                Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") / #f"ECEMF_T4.3_{region}_{year}_{scenario}" /
                 f"OperationScenario_Component_Building_{region}_non_clustered_{year}_{scenario}.xlsx"
             )
             cluster_dict = create_cluster_dict(df)
@@ -506,7 +507,8 @@ def main(region: str, years: list, scenarios: list):
                                                          cluster_dict=cluster_dict,
                                                          old_df=df,
                                                          region=region,
-                                                         year=year)
+                                                         year=year,
+                                                         scen=scenario)
             # save the new building df to the FLEX project:
             output_folder = Path("output_data") / f"ECEMF_T4.3_{region}_{year}_{scenario}"
             create_folder(output_folder)

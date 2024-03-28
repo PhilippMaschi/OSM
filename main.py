@@ -579,25 +579,20 @@ def create_2020_baseline_building_distribution(region: dict,
         Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}_{scen}.xlsx",
         index=False
     )
-    building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}_{scen}.xlsx",
-        index=False
-    )
     print("saved OperationScenario_Component_Building to xlsx")
     total_df.loc[:, "ID_Building"] = np.arange(1, total_df.shape[0] + 1)
     # add representative point for each building
     total_df['rep_point'] = total_df['geometry'].apply(lambda x: x.representative_point())
     total_df.to_excel(
-        Path(f"output_data") / f"ECEMF_T4.3_{region}_{year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
+        Path(f"output_data") / f"{year}_{scen}_combined_building_df_{city_name}_non_clustered.xlsx",
         index=False
     )
     print("saved dataframe with all information to xlsx")
 
     # create csv file with coordinates and shp file with dots to check in QGIS
     coordinate_df = gpd.GeoDataFrame(total_df[["rep_point", "ID_Building"]]).set_geometry("rep_point")
-    coordinate_df.to_file(Path(r"output_data") / f"{year}_{scen}_building_coordinates_{city_name}.shp",
-                          driver="ESRI Shapefile")
-    coordinate_df.to_csv(Path(r"output_data") / f"{year}_{scen}_Building_coordinates_{city_name}.csv", index=False)
+    coordinate_df.to_file(Path(r"output_data") / f"{scen}_building_coordinates_{city_name}.shp", driver="ESRI Shapefile")
+    coordinate_df.to_csv(Path(r"output_data") / f"{scen}_Building_coordinates_{city_name}.csv", index=False)
 
 
 def update_city_buildings(probability: pd.DataFrame,
@@ -791,6 +786,6 @@ if __name__ == '__main__':
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     print("starting clustering procedure")
-    cluster_main(region=city_name, years=years, scenarios=scenarios)
+    cluster_main(region=city_name, years=[2020]+years, scenarios=scenarios)
     # Then the data has to be copied from the respective FLEX folder from OSM/output_data to the FLEX repo.
 
