@@ -245,6 +245,8 @@ def get_number_heating_systems(df: pd.DataFrame) -> dict:
 
 def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: str, year: int, scen: str) -> pd.DataFrame:
     hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001_buildings_{country.lower()}_{scen}.hdf5"
+    if year == 2020:
+        year = 2019
     bc_df = hdf5_to_pandas(hdf5_f, f"BC_{year}", BUILDING_CLASS_COLUMNS)
     bssh_df = hdf5_to_pandas(hdf5_f, f"BSSH_{year}", BUILDING_SEGMENT_COLUMNS)
     # remove multiindex
