@@ -2,6 +2,7 @@ import time
 import fiona
 import numpy as np
 import geopandas as gpd
+import pandas as pd
 from shapely.geometry import shape
 from shapely.ops import unary_union
 from shapely.strtree import STRtree
@@ -13,6 +14,7 @@ def calc_premeter(input_lyr: Path,
                   positive_buffer: float = 0.1,
                   negative_buffer: float = -0.11):
     """
+    Achtung, die Koordinaten müssen für diese Funktion metrisch sein!
     :param input_lyr: path to .shp file
     :param output_lyr: path to where output file should be saved (.shp)
     :param positive_buffer: used to calculate the areas where buildings touch
@@ -21,6 +23,12 @@ def calc_premeter(input_lyr: Path,
                 and the circumference (both in m)
 
     """
+    # checking if csr is correct
+    # gdf = gpd.read_file(input_lyr)
+    # if gdf.crs.to_epsg() != 3035:
+    #     gdf.to_crs("epsg:3035")
+    #     gdf.to_file(input_lyr, driver="GPKG")
+
     print(f"calculating free length of each building and circumference...")
     st = time.time()
     if positive_buffer + negative_buffer >= 0:
