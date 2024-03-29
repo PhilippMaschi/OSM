@@ -43,7 +43,6 @@ columns_2_drop = [
     'b3_dd_id',
     'b3_pand_deel_id',
     'b3_h_70p',
-    'b3_bouwlagen',
     'b3_kwaliteitsindicator',
 ]
 
@@ -67,6 +66,7 @@ translation_dict = {
     "b3_h_dak_50p": "median_roof_height",
     "b3_h_dak_min": "minimum_roof_height",
     "b3_h_max": "maximum_roof_height",
+    'b3_bouwlagen': "floors",
 
 }
 
@@ -240,6 +240,7 @@ def add_osm_information_to_leeuwarden():
     larger_buildings = larger_buildings.rename(columns={"index_right": "OSM_ID"})
     # now kick manual selected buildings:
     complete_filtered = manual_removal_of_large_non_residential_buildings(larger_buildings)
+    complete_filtered = complete_filtered.to_crs("epsg:3035")
 
     complete_filtered.drop(columns=["amenity"]).to_file(Path(r"input_data") / "Leeuwarden.gpkg", driver="GPKG")
 
@@ -285,6 +286,11 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
     # not adjacent area
     df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "free length (m)"]) * \
                                       df.loc[:, "height"]
+
+    # where there are no estimates from the floors from the TU Delft dataset, we calculate them trough building height
+    # and room height
+    df["number_of_floors"] = df.apply(lambda row: int(row["floors"]) if not pd.isna(row["floors"]) else np.round(float(row["height"])/float(row["room_height"])), axis=1)
+
     # total wall area
     df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
     # ration of adjacent to not adjacent (to compare it to invert later)
@@ -293,9 +299,8 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
 
     # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
     # of persons per dwelling from invert
-    df_return.loc[:, "person_num"] = df_return.loc[:, "numero_viv"] * df_return.loc[:, "number_of_persons_per_dwelling"]
-    # building type:
-    df_return.loc[:, "type"] = ["SFH" if i == 1 else "MFH" for i in df_return.loc[:, "numero_viv"]]
+    df_return.loc[:, "person_num"] = df_return.loc[:, "number_of_dwellings_per_building"] * df_return.loc[:, "number_of_persons_per_dwelling"]
+
     return df_return
 
 
@@ -320,15 +325,11 @@ def map_invert_data_to_buildings(gdf: gpd.GeoDataFrame,
     # therefore we choose this label based on the volume of the building. 450m3 was choosen because then the ration
     # of SFH to MFH resembles aproximately the ration of open source data from: https://allcharts.info/the-netherlands/municipality-leeuwarden/
     # Also the labels from Open Street Maps align well with this approach for the buildings where the labels are available
-    gdf.loc[:, "type"] = ""
     gdf.loc[gdf.loc[:, "building_volume"] < 450, "type"] = "SFH"
     gdf.loc[gdf.loc[:, "building_volume"] >= 450, "type"] = "MFH"
 
     # set construction year to int:
     gdf["original_year_of_construction"] = gdf["original_year_of_construction"].astype(int)
-
-    # we use the minimum building height because we neglect rooms in the attic for the purpose of simlplicity:
-    gdf_5r1c = calculate_5R1C_necessary_parameters(gdf, year=year, country=country, scen=scen)
 
 
     type_groups = gdf.groupby("type")
@@ -339,7 +340,7 @@ def map_invert_data_to_buildings(gdf: gpd.GeoDataFrame,
         # group["altura_maxima"] = replace_nan_with_distribution(group, "altura_maxima")
 
         # select a building type from invert based on the construction year and type
-        group["invert_construction_period"] = group["ano_constr"].apply(
+        group["invert_construction_period"] = group["original_year_of_construction"].apply(
             lambda x: find_construction_period(construction_periods, x)
         )
         # invert_selection = filter_invert_data_after_type(type=type, invert_df=df_invert)  # does not work for residential (i have a mistake)
@@ -350,10 +351,8 @@ def map_invert_data_to_buildings(gdf: gpd.GeoDataFrame,
                               df_invert["construction_period"] == row['invert_construction_period'], :
                               ]
             # distinguish between SFH and MFH
-            if row["tipologia_"] == "Unifamiliar":
-                sfh_or_mfh = "SFH"
-            else:
-                sfh_or_mfh = "MFH"
+            sfh_or_mfh = row["type"]
+
             mask = close_selection["name"].isin([name for name in close_selection["name"] if sfh_or_mfh in name])
             type_selection = close_selection.loc[mask, :]
             if type_selection.shape[0] == 0:  # if only SFH or MFH available from invert take this data instead
@@ -371,17 +370,19 @@ def map_invert_data_to_buildings(gdf: gpd.GeoDataFrame,
 
     final_df = pd.concat(df_list, axis=0).reset_index(drop=True)
 
+    # we use the minimum building height because we neglect rooms in the attic for the purpose of simlplicity:
+    gdf_5r1c = calculate_5R1C_necessary_parameters(final_df, year=year, country=country, scen=scen)
 
 if __name__ == "__main__":
     Year = 2020
     scenario = "high_eff"
     combined_file_name = Path(r"input_data") / "Leeuwarden.gpkg"
     extended_file_name = Path(r"input_data") / "Leeuwarden_extended.gpkg"
-    if not extended_file_name.exists():
-        add_osm_information_to_leeuwarden()
-        # add the adjacent length and circumference with mosis wonder:
-        big_df = calc_premeter(input_lyr=combined_file_name,
-                               output_lyr=extended_file_name)
+    # if not extended_file_name.exists():
+    add_osm_information_to_leeuwarden()
+    # add the adjacent length and circumference with mosis wonder:
+    big_df = calc_premeter(input_lyr=combined_file_name,
+                           output_lyr=extended_file_name)
 
 
     combined_file = gpd.read_file(extended_file_name)
