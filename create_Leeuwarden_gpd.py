@@ -5,6 +5,7 @@ from main import BASE_EPSG, LEEUWARDEN, find_construction_period, get_parameters
 from tqdm import tqdm
 from load_invert_data import get_number_of_buildings_from_invert
 from mosis_wonder import calc_premeter
+from convert_to_5R1C import Create5R1CParameters
 import numpy as np
 
 columns_2_drop = [
@@ -290,6 +291,8 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
     # where there are no estimates from the floors from the TU Delft dataset, we calculate them trough building height
     # and room height
     df["number_of_floors"] = df.apply(lambda row: int(row["floors"]) if not pd.isna(row["floors"]) else np.round(float(row["height"])/float(row["room_height"])), axis=1)
+    # if number is 0 after the round, it will be set to 1
+    df.loc[df.loc[:, "number_of_floors"] < 1, "number_of_floors"] = 1
 
     # total wall area
     df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
@@ -300,6 +303,9 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
     # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
     # of persons per dwelling from invert
     df_return.loc[:, "person_num"] = df_return.loc[:, "number_of_dwellings_per_building"] * df_return.loc[:, "number_of_persons_per_dwelling"]
+    # correct the person number because this way it is too high: reduce person number by 1 if the area is below 60m2
+    # minimum person numbers in invert is 2...
+    df_return.loc[:, "person_num"] = df_return.apply(lambda row: row["person_num"] - 1 if float(row["area"]) < 60 else row["person_num"], axis=1)
 
     return df_return
 
@@ -373,16 +379,29 @@ def map_invert_data_to_buildings(gdf: gpd.GeoDataFrame,
     # we use the minimum building height because we neglect rooms in the attic for the purpose of simlplicity:
     gdf_5r1c = calculate_5R1C_necessary_parameters(final_df, year=year, country=country, scen=scen)
 
+    # with this dataframe we can calculate the new 5R1C parameters:
+    new_building_parameters_df, new_total_df = Create5R1CParameters(df=gdf_5r1c).main()
+    # give ID Building in to the total df
+    new_total_df["ID_Building"] = new_building_parameters_df["ID_Building"]
+
+    # todo save the building df
+    # todo update the building dfs for future years
+    # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
+    new_building_parameters_df.to_excel(
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}_{scen}.xlsx",
+        index=False
+    )
+
 if __name__ == "__main__":
     Year = 2020
     scenario = "high_eff"
     combined_file_name = Path(r"input_data") / "Leeuwarden.gpkg"
     extended_file_name = Path(r"input_data") / "Leeuwarden_extended.gpkg"
-    # if not extended_file_name.exists():
-    add_osm_information_to_leeuwarden()
-    # add the adjacent length and circumference with mosis wonder:
-    big_df = calc_premeter(input_lyr=combined_file_name,
-                           output_lyr=extended_file_name)
+    if not extended_file_name.exists():
+        add_osm_information_to_leeuwarden()
+        # add the adjacent length and circumference with mosis wonder:
+        big_df = calc_premeter(input_lyr=combined_file_name,
+                               output_lyr=extended_file_name)
 
 
     combined_file = gpd.read_file(extended_file_name)
