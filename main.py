@@ -10,14 +10,14 @@ from shapely.geometry import box
 import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
-import h5py
-from load_invert_data import get_number_of_buildings_from_invert, get_dynamic_calc_data, get_probabilities_for_building_to_change
+from load_invert_data import get_number_of_buildings_from_invert, get_probabilities_for_building_to_change, \
+    update_city_buildings, calculate_5R1C_necessary_parameters
 from cluster_buildings import main as cluster_main
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import warnings
 import random
-from datetime import datetime, timedelta
+
 
 # Suppress the FutureWarning
 warnings.simplefilter(action='ignore', category=FutureWarning)
@@ -159,6 +159,7 @@ def load_urban3r_murcia(region: dict) -> gpd.GeoDataFrame:
 
 
 def merge_osm_urban3r(output_filename: Path, region: dict) -> None:
+    print("merging OSM data with urban3r")
     urban3r = get_urban3r_murcia_gdf(region)
     urban3r["id_urban3r"] = np.arange(urban3r.shape[0])
     urban3r.to_file(f"urban3r_{region['city_name']}.shp", driver="ESRI Shapefile")
@@ -279,89 +280,45 @@ def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_cit
     # calculate the ground area
     gdf["area"] = gdf.area
     # for each building in the gdf extract the type (SFH or MFH or something else) and the year of construction
-    types = gdf["uso_princi"].unique()
-    print(types)
-    type_groups = gdf.groupby("uso_princi")
+
+    # add construction year to the buildings that don't have one
+    # group["ano_construccion"] = replace_nan_with_distribution(group, "ano_construccion")
+    gdf["ano_constr"] = gdf["ano_constr"].astype(int)
+
+    # select a building type from invert based on the construction year and type
+    gdf["invert_construction_period"] = gdf["ano_constr"].apply(
+        lambda x: find_construction_period(construction_periods, x)
+    )
+
     df_list = []
     np.random.seed(42)
-    for type, group in type_groups:
-        # add construction year to the buildings that don't have one
-        # group["ano_construccion"] = replace_nan_with_distribution(group, "ano_construccion")
-        group["ano_constr"] = group["ano_constr"].astype(int)
-        # add the number of stories of the building if not known
-        # group["altura_maxima"] = replace_nan_with_distribution(group, "altura_maxima")
-
-        # select a building type from invert based on the construction year and type
-        group["invert_construction_period"] = group["ano_constr"].apply(
-            lambda x: find_construction_period(construction_periods, x)
-        )
-        # invert_selection = filter_invert_data_after_type(type=type, invert_df=df_invert)  # does not work for residential (i have a mistake)
-
-        # now select a representative building from invert for each building from Urban3r:
-        for i, row in group.iterrows():
-            close_selection = df_invert.loc[
-                              df_invert["construction_period"] == row['invert_construction_period'], :
-                              ]
-            # distinguish between SFH and MFH
-            if row["tipologia_"] == "Unifamiliar":
-                sfh_or_mfh = "SFH"
-            else:
-                sfh_or_mfh = "MFH"
-            mask = close_selection["name"].isin([name for name in close_selection["name"] if sfh_or_mfh in name])
-            type_selection = close_selection.loc[mask, :]
-            if type_selection.shape[0] == 0:  # if only SFH or MFH available from invert take this data instead
-                type_selection = close_selection
-            # now get select the building after the probability based on the distribution of the number of buildings
-            # in invert:
-            distribution = type_selection["number_of_buildings"].astype(float) / \
-                           type_selection["number_of_buildings"].astype(float).sum()
-            # draw one sample from the distribution
-            random_draw = np.random.choice(distribution.index, size=1, p=distribution.values)[0]
-            selected_building = type_selection.loc[random_draw, :]
-            # delete number of buildings because this number is 1 for a single building
-            df_list.append(pd.DataFrame(pd.concat([selected_building, row.drop(columns=["number_of_buildings"])], axis=0)).T)
+    # now select a representative building from invert for each building from Urban3r:
+    for i, row in tqdm.tqdm(gdf.iterrows(), desc="selecting representative buildings from invert"):
+        close_selection = df_invert.loc[
+                          df_invert["construction_period"] == row['invert_construction_period'], :
+                          ]
+        # distinguish between SFH and MFH
+        if row["tipologia_"] == "Unifamiliar":
+            sfh_or_mfh = "SFH"
+        else:
+            sfh_or_mfh = "MFH"
+        mask = close_selection["name"].isin([name for name in close_selection["name"] if sfh_or_mfh in name])
+        type_selection = close_selection.loc[mask, :]
+        if type_selection.shape[0] == 0:  # if only SFH or MFH available from invert take this data instead
+            type_selection = close_selection
+        # now get select the building after the probability based on the distribution of the number of buildings
+        # in invert:
+        distribution = type_selection["number_of_buildings"].astype(float) / \
+                       type_selection["number_of_buildings"].astype(float).sum()
+        # draw one sample from the distribution
+        random_draw = np.random.choice(distribution.index, size=1, p=distribution.values)[0]
+        selected_building = type_selection.loc[random_draw, :]
+        # delete number of buildings because this number is 1 for a single building
+        df_list.append(pd.DataFrame(pd.concat([selected_building, row.drop(columns=["number_of_buildings"])], axis=0)).T)
 
     final_df = pd.concat(df_list, axis=0).reset_index(drop=True)
 
     return final_df
-
-
-def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: str, scen: str) -> pd.DataFrame:
-    # load dynamic calc data
-    dynamic_calc = get_dynamic_calc_data(year, country, scen)
-    # map the CM_Factor and the Am_factor to the df through the bc_index:
-    if not "bc_index" in df.columns:
-        df = df.rename(columns={"index": "bc_index"})
-    merged_df = df.merge(
-        dynamic_calc.loc[:, ["bc_index", "CM_factor", "Am_factor"]],
-        on="bc_index",
-        how="inner"
-    )
-    return merged_df
-
-
-def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
-    # number of floors
-    df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
-    # height of the building
-    df.loc[:, "height"] = (df.loc[:, "room_height"] + 0.3) * df.loc[:, "floors"]
-    # adjacent area
-    df.loc[:, "free wall area (m2)"] = df.loc[:, "free length (m)"] * df.loc[:, "height"]
-    # not adjacent area
-    df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "free length (m)"]) * \
-                                      df.loc[:, "height"]
-    # total wall area
-    df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
-    # ration of adjacent to not adjacent (to compare it to invert later)
-    df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
-    df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
-
-    # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
-    # of persons per dwelling from invert
-    df_return.loc[:, "person_num"] = df_return.loc[:, "numero_viv"] * df_return.loc[:, "number_of_persons_per_dwelling"]
-    # building type:
-    df_return.loc[:, "type"] = ["SFH" if i == 1 else "MFH" for i in df_return.loc[:, "numero_viv"]]
-    return df_return
 
 
 def create_boiler_excel() -> pd.DataFrame:
@@ -558,10 +515,13 @@ def create_2020_baseline_building_distribution(region: dict,
     shp_filename = Path(f"merged_osm_geom_{city_name}.shp")
     extended_shp_filename = Path(f"merged_osm_geom_extended_{city_name}.shp")
     # merge the dataframes and safe the shapefile to shp_filename:
-    merge_osm_urban3r(output_filename=shp_filename, region=region)
-    # add the adjacent length and circumference with mosis wonder:
-    big_df = calc_premeter(input_lyr=shp_filename,
-                           output_lyr=extended_shp_filename, )
+    if not extended_shp_filename.exists():
+        merge_osm_urban3r(output_filename=shp_filename, region=region)
+        # add the adjacent length and circumference with mosis wonder:
+        big_df = calc_premeter(input_lyr=shp_filename,
+                               output_lyr=extended_shp_filename)
+    else:
+        big_df = gpd.read_file(extended_shp_filename)
 
     # combine the Urban3R information with the Invert database
     combined_df = add_invert_data_to_gdf_table(big_df,
@@ -572,6 +532,7 @@ def create_2020_baseline_building_distribution(region: dict,
 
     # turn them to numeric
     numeric_df = combined_df.apply(convert_to_float)
+
     building_df, total_df = get_related_5R1C_parameters(df=numeric_df, year=year, country_name=country_name, scen=scen)
 
     # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
@@ -595,88 +556,7 @@ def create_2020_baseline_building_distribution(region: dict,
     coordinate_df.to_csv(Path(r"output_data") / f"{scen}_Building_coordinates_{city_name}.csv", index=False)
 
 
-def update_city_buildings(probability: pd.DataFrame,
-                          new_building_pool: pd.DataFrame,
-                          old_building_df: pd.DataFrame,
-                          old_5R1C_df: pd.DataFrame,
-                          new_year: int,
-                          country: str,
-                          scen: str):
-    new_buildings = []
-    new_5R1C = []
 
-    # group the old buildings by bc index and iterate through them. If the bc index has a positive choice for a new
-    # building, new buildings are drawn for the whole group from the new pool in the same year category:
-    old_buildings_group = old_building_df.groupby("bc_index")
-    np.random.seed(42)
-    for bc_index, group in tqdm.tqdm(old_buildings_group, desc=f"creating building df for {new_year}"):
-        # for each building decide based on the probability if it will be replaced:
-        sample_size = group.shape[0]
-        re_sample_probability = probability.loc[probability.loc[:, "index"] == bc_index, "probability"].values[0]
-        group["rechoose"] = np.random.choice([False, True], p=[1 - re_sample_probability, re_sample_probability], size=sample_size)
-        # the buildings with True in rechoose will be newly choosen from the new building pool, the others stay:
-
-        # buildings stay the same
-        stay_the_same = group.query("rechoose==False")
-        if not stay_the_same.empty:
-            new_buildings.append(stay_the_same.drop(columns=["rechoose"]))
-            # building IDs that stay the same:
-            same_buildings_ids = stay_the_same["ID_Building"].to_list()
-            new_5R1C.append(old_5R1C_df.loc[old_5R1C_df.loc[:, "ID_Building"].isin(same_buildings_ids), :].copy())
-
-        # draw new buildings for each row:
-        to_be_chosen_new = group.query("rechoose==True")
-        if to_be_chosen_new.empty:
-            continue
-        # construction year and type are the same within the group as its the same bc index
-        building_type = to_be_chosen_new["type"].values[0]
-        construction_period = to_be_chosen_new['invert_construction_period'].values[0]
-        # based on construction period and type, filter the new pool
-        close_selection = new_building_pool.loc[new_building_pool["construction_period"] == construction_period, :].copy()
-        mask = close_selection["name"].isin([name for name in close_selection["name"] if building_type in name])
-        # set bc index as index to have it in the random draw
-        type_selection = close_selection.loc[mask, :].copy().set_index("index")
-
-        # now get select the building after the probability based on the distribution of the number of buildings
-        # in invert:
-        distribution = type_selection["number_of_buildings"].astype(float) / \
-                       type_selection["number_of_buildings"].astype(float).sum()
-        # draw one sample from the distribution, the size is the number of buildings that have to be re-drawn:
-        # random draw is an array of bc indices that will replace the buildings in the current group
-        random_draw = np.random.choice(distribution.index, size=to_be_chosen_new.shape[0], p=distribution.values)
-
-        new_buildings_list = [new_building_pool.loc[new_building_pool.loc[:, "index"] == i, :] for i in random_draw]
-        new_buildings_df = pd.concat(new_buildings_list)
-        # to the new buildings df add the information from the old buildings like the ID_Building, rep point etc.
-        # Only parameters that have to be adjusted are the 5R1C parameters which are CM_factor and Am_factor, n50
-        new_df = to_be_chosen_new.copy()
-        new_df.loc[:, new_buildings_df.columns] = new_buildings_df.values
-        # drop the CM factor and Am factor because they need to be replaced by the new buildings:
-        new_df.drop(columns=["CM_factor", "Am_factor"], inplace=True)
-        new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country, scen=scen)
-        # with this dataframe we can calculate the new 5R1C parameters:
-        new_building_component_df_part, new_combined_building_df_part = Create5R1CParameters(df=new_df_with_5R1C).main()
-        # update the ID Building in 5R1C dataframe because they are spit out starting at 1 from Create5R1CParameters
-        new_building_component_df_part["ID_Building"] = new_combined_building_df_part["ID_Building"]
-
-        new_buildings.append(new_combined_building_df_part.drop(columns=["rechoose"]))
-        new_5R1C.append(new_building_component_df_part)
-
-    new_total_df = pd.concat(new_buildings, axis=0).drop(columns=["index"])
-    new_building_df = pd.concat(new_5R1C, axis=0)
-    # oder the dfs after the ID_Building:
-    new_total_df.sort_values(by="ID_Building", inplace=True)
-    new_building_df.sort_values(by="ID_Building", inplace=True)
-    # save the dataframes
-    new_total_df.to_excel(
-        Path(f"output_data") / f"{new_year}_{scen}_combined_building_df_{city_name}_non_clustered.xlsx",
-        index=False
-    )
-    new_building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{new_year}_{scen}.xlsx",
-        index=False
-    )
-    print(f"saved building xlsx for {new_year}")
 
 
 def save_to_all_years_in_flex_folders(df_to_save: pd.DataFrame, years: list, filename: str, scenarios: list):
@@ -724,7 +604,7 @@ if __name__ == '__main__':
     city_name = region["city_name"]
     country_name = "Spain"
     years = [2030, 2040, 2050]
-    scenarios = ["moderate_eff", "high_eff"]
+    scenarios = ["high_eff", "moderate_eff"] #"moderate_eff",
     for scenario in scenarios:
         # generate the baseline:
         create_2020_baseline_building_distribution(region=region,
@@ -740,7 +620,9 @@ if __name__ == '__main__':
                 old_year = years[i-1]
             propb, bc_new_pool = get_probabilities_for_building_to_change(old_year=old_year,
                                                                           new_year=new_year,
-                                                                          scen=scenario)
+                                                                          scen=scenario,
+                                                                          country=country_name,
+                                                                          city=city_name)
             # with the choices go into the 2020 murcia df and for all building types that have choice=True select a new
             # building from the new pool:
 
@@ -756,7 +638,8 @@ if __name__ == '__main__':
                                   old_5R1C_df=old_5R1C,
                                   new_year=new_year,
                                   country=country_name,
-                                  scen=scenario)
+                                  scen=scenario,
+                                  city=city_name)
 
     # prepare the FLEX runs:
     create_flex_input_folders(region=region["city_name"], years=[2020] + years, scenarios=scenarios)

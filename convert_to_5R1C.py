@@ -67,7 +67,10 @@ class Create5R1CParameters:
         self.foot_print = self.df.loc[:, "area"]
         self.floors = self.df.loc[:, "floors"]
         self.height = self.df.loc[:, "height"]
-        self.roof_area = self.df.loc[:, "area"]  # mostly flat roofs in Murcia
+        if "roof_type" in list(self.df.columns):  # for Leeuwarden roof details are known
+            self.roof_area = self.df.loc[:, "flat_roof_area"] + self.df.loc[:, "sloping_roof_area"]
+        else:
+            self.roof_area = self.df.loc[:, "area"]  # mostly flat roofs in Murcia
 
         self.volume = self.foot_print * self.height * 0.7  # 30% des gesamtvolumens werden nicht geheizt
 

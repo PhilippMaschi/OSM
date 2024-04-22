@@ -3,6 +3,7 @@ from pathlib import Path
 import h5py
 import pandas as pd
 import tqdm
+from convert_to_5R1C import Create5R1CParameters
 
 BUILDING_CLASS_COLUMNS = {
     "index": int,
@@ -296,9 +297,16 @@ def get_dynamic_calc_data(year: int, country: str, scen: str) -> pd.DataFrame:
     return df
 
 
-def get_probabilities_for_building_to_change(old_year: int, new_year: int, scen: str) -> (pd.DataFrame, pd.DataFrame):
-    buildings_2020 = get_number_of_buildings_from_invert("Sevilla", "spain", old_year, scen=scen)
-    buildings_2030 = get_number_of_buildings_from_invert("Sevilla", "spain", new_year, scen=scen)
+def get_probabilities_for_building_to_change(
+        old_year: int,
+        new_year: int,
+        scen: str,
+        country: str,
+        city: str
+
+                                             ) -> (pd.DataFrame, pd.DataFrame):
+    buildings_2020 = get_number_of_buildings_from_invert(city, country, old_year, scen=scen)
+    buildings_2030 = get_number_of_buildings_from_invert(city, country, new_year, scen=scen)
 
     # for every building in 2020 the total number of buildings will be compared with the same bc index of 2030
     # the difference in number of buildings is and indicator of how probable it is that the building was renovated
@@ -327,6 +335,165 @@ def get_probabilities_for_building_to_change(old_year: int, new_year: int, scen:
     return probabilities, bc_new_pool
 
 
+def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: str, scen: str) -> pd.DataFrame:
+    # load dynamic calc data
+    dynamic_calc = get_dynamic_calc_data(year, country, scen)
+    # map the CM_Factor and the Am_factor to the df through the bc_index:
+    if not "bc_index" in df.columns:
+        df = df.rename(columns={"index": "bc_index"})
+    merged_df = df.merge(
+        dynamic_calc.loc[:, ["bc_index", "CM_factor", "Am_factor"]],
+        on="bc_index",
+        how="inner"
+    )
+    return merged_df
+
+
+def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
+    # number of floors
+    df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
+    # height of the building
+    df.loc[:, "height"] = (df.loc[:, "room_height"] + 0.3) * df.loc[:, "floors"]
+    # adjacent area
+    df.loc[:, "free wall area (m2)"] = df.loc[:, "free length (m)"] * df.loc[:, "height"]
+    # not adjacent area
+    df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "free length (m)"]) * \
+                                      df.loc[:, "height"]
+    # total wall area
+    df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
+    # ration of adjacent to not adjacent (to compare it to invert later)
+    df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
+    df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
+
+    # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
+    # of persons per dwelling from invert
+    df_return.loc[:, "person_num"] = df_return.loc[:, "numero_viv"] * df_return.loc[:, "number_of_persons_per_dwelling"]
+    # building type:
+    df_return.loc[:, "type"] = ["SFH" if i == 1 else "MFH" for i in df_return.loc[:, "numero_viv"]]
+    return df_return
+
+
+def calculate_5R1C_necessary_parameters_leeuwarden(df, year: int, country: str, scen: str):
+    # height of the building
+    df.loc[:, "height"] = df["b3_h_min"] - df["ground_level"]
+    # adjacent area
+    df.loc[:, "free wall area (m2)"] = df.loc[:, "free length (m)"] * df.loc[:, "height"]
+    # not adjacent area
+    df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "free length (m)"]) * \
+                                      df.loc[:, "height"]
+
+    # where there are no estimates from the floors from the TU Delft dataset, we calculate them trough building height
+    # and room height
+    df["floors"] = df.apply(lambda row: int(row["floors"]) if not pd.isna(row["floors"]) else np.round(
+        float(row["height"]) / float(row["room_height"])), axis=1)
+    # if number is 0 after the round, it will be set to 1
+    df.loc[df.loc[:, "floors"] < 1, "floors"] = 1
+
+    # total wall area
+    df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
+    # ration of adjacent to not adjacent (to compare it to invert later)
+    df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
+    df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
+
+    # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
+    # of persons per dwelling from invert
+    df_return.loc[:, "person_num"] = df_return.loc[:, "number_of_dwellings_per_building"] * df_return.loc[:,
+                                                                                            "number_of_persons_per_dwelling"]
+    # correct the person number because this way it is too high: reduce person number by 1 if the area is below 60m2
+    # minimum person numbers in invert is 2...
+    df_return.loc[:, "person_num"] = df_return.apply(
+        lambda row: row["person_num"] - 1 if float(row["area"]) < 60 else row["person_num"], axis=1)
+
+    return df_return
+
+
+def update_city_buildings(probability: pd.DataFrame,
+                          new_building_pool: pd.DataFrame,
+                          old_building_df: pd.DataFrame,
+                          old_5R1C_df: pd.DataFrame,
+                          new_year: int,
+                          country: str,
+                          city: str,
+                          scen: str):
+    new_buildings = []
+    new_5R1C = []
+
+    # group the old buildings by bc index and iterate through them. If the bc index has a positive choice for a new
+    # building, new buildings are drawn for the whole group from the new pool in the same year category:
+    old_buildings_group = old_building_df.groupby("bc_index")
+    np.random.seed(42)
+    for bc_index, group in tqdm.tqdm(old_buildings_group, desc=f"creating building df for {new_year}"):
+        # for each building decide based on the probability if it will be replaced:
+        sample_size = group.shape[0]
+        re_sample_probability = probability.loc[probability.loc[:, "index"] == bc_index, "probability"].values[0]
+        group["rechoose"] = np.random.choice([False, True], p=[1 - re_sample_probability, re_sample_probability], size=sample_size)
+        # the buildings with True in rechoose will be newly choosen from the new building pool, the others stay:
+
+        # buildings stay the same
+        stay_the_same = group.query("rechoose==False")
+        if not stay_the_same.empty:
+            new_buildings.append(stay_the_same.drop(columns=["rechoose"]))
+            # building IDs that stay the same:
+            same_buildings_ids = stay_the_same["ID_Building"].to_list()
+            new_5R1C.append(old_5R1C_df.loc[old_5R1C_df.loc[:, "ID_Building"].isin(same_buildings_ids), :].copy())
+
+        # draw new buildings for each row:
+        to_be_chosen_new = group.query("rechoose==True")
+        if to_be_chosen_new.empty:
+            continue
+        # construction year and type are the same within the group as its the same bc index
+        building_type = to_be_chosen_new["type"].values[0]
+        construction_period = to_be_chosen_new['invert_construction_period'].values[0]
+        # based on construction period and type, filter the new pool
+        close_selection = new_building_pool.loc[new_building_pool["construction_period"] == construction_period, :].copy()
+        mask = close_selection["name"].isin([name for name in close_selection["name"] if building_type in name])
+        # set bc index as index to have it in the random draw
+        type_selection = close_selection.loc[mask, :].copy().set_index("index")
+
+        # now get select the building after the probability based on the distribution of the number of buildings
+        # in invert:
+        distribution = type_selection["number_of_buildings"].astype(float) / \
+                       type_selection["number_of_buildings"].astype(float).sum()
+        # draw one sample from the distribution, the size is the number of buildings that have to be re-drawn:
+        # random draw is an array of bc indices that will replace the buildings in the current group
+        random_draw = np.random.choice(distribution.index, size=to_be_chosen_new.shape[0], p=distribution.values)
+
+        new_buildings_list = [new_building_pool.loc[new_building_pool.loc[:, "index"] == i, :] for i in random_draw]
+        new_buildings_df = pd.concat(new_buildings_list)
+        # to the new buildings df add the information from the old buildings like the ID_Building, rep point etc.
+        # Only parameters that have to be adjusted are the 5R1C parameters which are CM_factor and Am_factor, n50
+        new_df = to_be_chosen_new.copy()
+        new_df.loc[:, new_buildings_df.columns] = new_buildings_df.values
+        # drop the CM factor and Am factor because they need to be replaced by the new buildings:
+        new_df.drop(columns=["CM_factor", "Am_factor"], inplace=True)
+        if country.lower() == "spain":
+            new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country, scen=scen)
+        else:
+            new_df_with_5R1C = calculate_5R1C_necessary_parameters_leeuwarden(new_df, new_year, country=country, scen=scen)
+
+        # with this dataframe we can calculate the new 5R1C parameters:
+        new_building_component_df_part, new_combined_building_df_part = Create5R1CParameters(df=new_df_with_5R1C).main()
+        # update the ID Building in 5R1C dataframe because they are spit out starting at 1 from Create5R1CParameters
+        new_building_component_df_part["ID_Building"] = new_combined_building_df_part["ID_Building"]
+
+        new_buildings.append(new_combined_building_df_part.drop(columns=["rechoose"]))
+        new_5R1C.append(new_building_component_df_part)
+
+    new_total_df = pd.concat(new_buildings, axis=0).drop(columns=["index"])
+    new_building_df = pd.concat(new_5R1C, axis=0)
+    # oder the dfs after the ID_Building:
+    new_total_df.sort_values(by="ID_Building", inplace=True)
+    new_building_df.sort_values(by="ID_Building", inplace=True)
+    # save the dataframes
+    new_total_df.to_excel(
+        Path(f"output_data") / f"{new_year}_{scen}_combined_building_df_{city}_non_clustered.xlsx",
+        index=False
+    )
+    new_building_df.to_excel(
+        Path(f"output_data") / f"OperationScenario_Component_Building_{city}_non_clustered_{new_year}_{scen}.xlsx",
+        index=False
+    )
+    print(f"saved building xlsx for {new_year}")
 
 
 
@@ -349,4 +516,5 @@ if __name__ == "__main__":
                           old_building_df=old_buildings,
                           old_5R1C_df=old_5R1C,
                           new_year=2030,
-                          country=country)
+                          country=country,
+                          city="Murcia")
