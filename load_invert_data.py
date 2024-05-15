@@ -244,7 +244,7 @@ def get_number_heating_systems(df: pd.DataFrame) -> dict:
     return numbers.to_dict()
 
 
-def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: str, year: int, scen: str) -> pd.DataFrame:
+def get_number_of_buildings_from_invert(country: str, year: int, scen: str) -> pd.DataFrame:
     hdf5_f = Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\input_data") / f"001_buildings_{country.lower()}_{scen}.hdf5"
     if year == 2020:
         year = 2019
@@ -259,8 +259,8 @@ def get_number_of_buildings_from_invert(invert_city_filter_name: str, country: s
     bc["building_categories_index"] = bc["building_categories_index"].astype(int)
     # use only buildings from a specific city that represents a region in invert!
     if country.lower() == "spain":
-        bc = filter_only_certain_region_buildings(bc, invert_city_filter_name)
-        bssh = filter_only_certain_region_buildings(bssh, invert_city_filter_name)
+        bc = filter_only_certain_region_buildings(bc, "Sevilla")
+        bssh = filter_only_certain_region_buildings(bssh, "Sevilla")
 
     # remove duplicated rows of the bssh dataframe (don't know why they exist)
     duplicate_rows = bssh.drop(columns=["index", "name"]).duplicated()
@@ -305,8 +305,8 @@ def get_probabilities_for_building_to_change(
         city: str
 
                                              ) -> (pd.DataFrame, pd.DataFrame):
-    buildings_2020 = get_number_of_buildings_from_invert(city, country, old_year, scen=scen)
-    buildings_2030 = get_number_of_buildings_from_invert(city, country, new_year, scen=scen)
+    buildings_2020 = get_number_of_buildings_from_invert(country, old_year, scen=scen)
+    buildings_2030 = get_number_of_buildings_from_invert(country, new_year, scen=scen)
 
     # for every building in 2020 the total number of buildings will be compared with the same bc index of 2030
     # the difference in number of buildings is and indicator of how probable it is that the building was renovated
@@ -355,12 +355,12 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
     # height of the building
     df.loc[:, "height"] = (df.loc[:, "room_height"] + 0.3) * df.loc[:, "floors"]
     # adjacent area
-    df.loc[:, "free wall area (m2)"] = df.loc[:, "free length (m)"] * df.loc[:, "height"]
+    df.loc[:, "free wall area (m2)"] = df.loc[:, "free lengt"] * df.loc[:, "height"]
     # not adjacent area
-    df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumference (m)"] - df.loc[:, "free length (m)"]) * \
+    df.loc[:, "adjacent area (m2)"] = (df.loc[:, "circumfere"] - df.loc[:, "free lengt"]) * \
                                       df.loc[:, "height"]
     # total wall area
-    df.loc[:, "wall area (m2)"] = df.loc[:, "circumference (m)"] * df.loc[:, "height"]
+    df.loc[:, "wall area (m2)"] = df.loc[:, "circumfere"] * df.loc[:, "height"]
     # ration of adjacent to not adjacent (to compare it to invert later)
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
     df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
@@ -445,7 +445,18 @@ def update_city_buildings(probability: pd.DataFrame,
         building_type = to_be_chosen_new["type"].values[0]
         construction_period = to_be_chosen_new['invert_construction_period'].values[0]
         # based on construction period and type, filter the new pool
-        close_selection = new_building_pool.loc[new_building_pool["construction_period"] == construction_period, :].copy()
+        # sometimes the construction period end does not fit together because it is not the same in all invert countries
+        if not construction_period in list(new_building_pool["construction_period"]):
+            # check if the first year is equal:
+            if int(construction_period.split("-")[0]) in list(new_building_pool["construction_period_start"]):
+                close_selection = new_building_pool.loc[
+                                  new_building_pool["construction_period_start"] == int(construction_period.split("-")[0]),
+                                  :].copy()
+
+            else:
+                assert "problem with construction periods"
+        else:
+            close_selection = new_building_pool.loc[new_building_pool["construction_period"] == construction_period, :].copy()
         mask = close_selection["name"].isin([name for name in close_selection["name"] if building_type in name])
         # set bc index as index to have it in the random draw
         type_selection = close_selection.loc[mask, :].copy().set_index("index")

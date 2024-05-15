@@ -1,13 +1,15 @@
 import geopandas as gpd
 from pathlib import Path
 import pandas as pd
-from main import BASE_EPSG, LEEUWARDEN, find_construction_period
+from main import BASE_EPSG, LEEUWARDEN, find_construction_period, create_flex_input_folders, create_boiler_excel, \
+    create_behavior_excel, create_people_at_home_profiles, save_to_all_years_in_flex_folders
 from tqdm import tqdm
 from load_invert_data import get_number_of_buildings_from_invert, get_probabilities_for_building_to_change, \
-    update_city_buildings
+    update_city_buildings, calculate_5R1C_necessary_parameters_leeuwarden
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import numpy as np
+from cluster_buildings import main as cluster_main
 
 columns_2_drop = [
     'b3_bag_bag_overlap',
@@ -256,8 +258,8 @@ def prepare_data_for_5R1C_transition():
     pass
 
 
-def load_invert_netherlands_data(invert_city_filter_name: str, country: str, year: int, scen: str):
-    df_invert = get_number_of_buildings_from_invert(invert_city_filter_name=invert_city_filter_name,
+def load_invert_netherlands_data(country: str, year: int, scen: str):
+    df_invert = get_number_of_buildings_from_invert(
                                                     country=country,
                                                     year=year,
                                                     scen=scen)
@@ -284,11 +286,10 @@ def load_invert_netherlands_data(invert_city_filter_name: str, country: str, yea
 
 def map_invert_data_to_buildings(gdf: gpd.GeoDataFrame,
                                  country: str,
-                                 invert_city_filter_name: str,
                                  year: int,
                                  scen: str):
     gdf["original_year_of_construction"] = gdf["original_year_of_construction"].astype(int)
-    df_invert = load_invert_netherlands_data(invert_city_filter_name=invert_city_filter_name,
+    df_invert = load_invert_netherlands_data(
                                              country=country,
                                              year=year,
                                              scen=scen)
@@ -370,7 +371,6 @@ def create_2020_base_files(scen: str, city: str):
     combined_file = gpd.read_file(extended_file_name)
     # add the invert buildings to the real buildings and re-calculate the 5R1C parameters:
     building_parameters_df, total_df = map_invert_data_to_buildings(combined_file,
-                                                                    invert_city_filter_name="",
                                                                     country="Netherlands",
                                                                     year=Year,
                                                                     scen=scen)
@@ -397,7 +397,7 @@ def main():
     years = [2030, 2040, 2050]
     country_name = "Netherlands"
     city_name = LEEUWARDEN["city_name"]
-    scenarios = ["high_eff", "moderate_eff"]  # ["high_eff", "moderate_eff"]
+    scenarios = ["H", "M"]  # ["high_eff", "moderate_eff"]
     # now generate iteratively the building files for the years based on the baseline:
     np.random.seed(42)
     for scenario in scenarios:
@@ -431,8 +431,40 @@ def main():
                                   scen=scenario,
                                   city=city_name)
 
+    # prepare the FLEX runs:
+    create_flex_input_folders(city=city_name, years=[2020] + years, scenarios=scenarios)
+    # create the boiler table for the 5R1C model:
+    boiler_df = create_boiler_excel()
+    # create Behavior table for 5R1C model:
+    behavior_df = create_behavior_excel(country=country_name)
+    # create the stay at home profiles as the people with direct electric heating will only use it rarely which is
+    # reflected in the target temperatures of ID Behavior 2 in the behavior table
+    behavior_profile = create_people_at_home_profiles(city_name=city_name)
+    # create FLEX starting folders:
+    save_to_all_years_in_flex_folders(df_to_save=boiler_df,
+                                      years=[2020] + years,
+                                      filename="OperationScenario_Component_Boiler.xlsx",
+                                      scenarios=scenarios,
+                                      city=city_name)
+    save_to_all_years_in_flex_folders(df_to_save=behavior_df,
+                                      years=[2020] + years,
+                                      filename="OperationScenario_Component_Behavior.xlsx",
+                                      scenarios=scenarios,
+                                      city=city_name)
+    save_to_all_years_in_flex_folders(df_to_save=behavior_profile,
+                                      years=[2020] + years,
+                                      filename="OperationScenario_BehaviorProfile.xlsx",
+                                      scenarios=scenarios,
+                                      city=city_name)
 
+    #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
+    #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    print("starting clustering procedure")
+    cluster_main(region=city_name, years=[2020] + years, scenarios=scenarios)
+    # Then the data has to be copied from the respective FLEX folder from OSM/output_data to the FLEX repo.
 
 
 if __name__ == "__main__":
     main()
+

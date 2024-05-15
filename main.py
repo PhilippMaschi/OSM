@@ -262,10 +262,9 @@ def filter_invert_data_after_type(type: str, invert_df: pd.DataFrame) -> pd.Data
     return selection
 
 
-def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, invert_city_filter_name: str, year: int, scen: str):
+def add_invert_data_to_gdf_table(gdf: gpd.GeoDataFrame, country: str, year: int, scen: str):
     # load invert table for Sevilla buildings
-    df_invert = get_number_of_buildings_from_invert(invert_city_filter_name=invert_city_filter_name,
-                                                    country=country,
+    df_invert = get_number_of_buildings_from_invert(country=country,
                                                     year=year,
                                                     scen=scen)
     df_invert.loc[:, "construction_period"] = df_invert.loc[:, "construction_period_start"].astype(str) + "-" + \
@@ -466,8 +465,6 @@ def create_people_at_home_profiles(city_name: str) -> pd.DataFrame:
     return df
 
 
-
-
 def create_behavior_excel(country: str):
     behavior_dict = {
         "ID_Behavior": [1, 2, 3],
@@ -526,7 +523,7 @@ def create_2020_baseline_building_distribution(region: dict,
     # combine the Urban3R information with the Invert database
     combined_df = add_invert_data_to_gdf_table(big_df,
                                                country=country_name,
-                                               invert_city_filter_name="Sevilla",
+                                               
                                                year=year,
                                                scen=scen)
 
@@ -556,13 +553,10 @@ def create_2020_baseline_building_distribution(region: dict,
     coordinate_df.to_csv(Path(r"output_data") / f"{scen}_Building_coordinates_{city_name}.csv", index=False)
 
 
-
-
-
-def save_to_all_years_in_flex_folders(df_to_save: pd.DataFrame, years: list, filename: str, scenarios: list):
+def save_to_all_years_in_flex_folders(df_to_save: pd.DataFrame, years: list, filename: str, scenarios: list, city: str):
     for s in scenarios:
         for y in years:
-            folder = Path("output_data") / f"ECEMF_T4.3_{city_name}_{y}_{s}"
+            folder = Path("output_data") / f"ECEMF_T4.3_{city}_{y}_{s}"
             df_to_save.to_excel(folder / f"{filename}", index=False)
 
 
@@ -586,11 +580,11 @@ def copy_flex_input_files_to_year_runs(orig_file_location: Path, destination_pat
         shutil.copy(src=orig_file_location / file, dst=destination_path / file)
 
 
-def create_flex_input_folders(region: str, years: list, scenarios: list):
-    flex_scenario_folder = Path(r"input_data") / f"FLEX_scenario_files_{region}"
+def create_flex_input_folders(city: str, years: list, scenarios: list):
+    flex_scenario_folder = Path(r"input_data") / f"FLEX_scenario_files_{city}"
     for y in years:
         for s in scenarios:
-            folder = Path("output_data") / f"ECEMF_T4.3_{city_name}_{y}_{s}"
+            folder = Path("output_data") / f"ECEMF_T4.3_{city}_{y}_{s}"
             folder.mkdir(exist_ok=True)
             copy_flex_input_files_to_year_runs(
                 orig_file_location=flex_scenario_folder,
@@ -604,7 +598,7 @@ if __name__ == '__main__':
     city_name = region["city_name"]
     country_name = "Spain"
     years = [2030, 2040, 2050]
-    scenarios = ["high_eff", "moderate_eff"] #"moderate_eff",
+    scenarios = ["H", "M"] #"moderate_eff",
     for scenario in scenarios:
         # generate the baseline:
         create_2020_baseline_building_distribution(region=region,
@@ -642,7 +636,7 @@ if __name__ == '__main__':
                                   city=city_name)
 
     # prepare the FLEX runs:
-    create_flex_input_folders(region=region["city_name"], years=[2020] + years, scenarios=scenarios)
+    create_flex_input_folders(city=region["city_name"], years=[2020] + years, scenarios=scenarios)
     # create the boiler table for the 5R1C model:
     boiler_df = create_boiler_excel()
     # create Behavior table for 5R1C model:
@@ -654,15 +648,18 @@ if __name__ == '__main__':
     save_to_all_years_in_flex_folders(df_to_save=boiler_df,
                                       years=[2020] + years,
                                       filename="OperationScenario_Component_Boiler.xlsx",
-                                      scenarios=scenarios)
+                                      scenarios=scenarios,
+                                      city=city_name)
     save_to_all_years_in_flex_folders(df_to_save=behavior_df,
                                       years=[2020] + years,
                                       filename="OperationScenario_Component_Behavior.xlsx",
-                                      scenarios=scenarios)
+                                      scenarios=scenarios,
+                                      city=city_name)
     save_to_all_years_in_flex_folders(df_to_save=behavior_profile,
                                       years=[2020] + years,
                                       filename="OperationScenario_BehaviorProfile.xlsx",
-                                      scenarios=scenarios)
+                                      scenarios=scenarios,
+                                      city=city_name)
 
 
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

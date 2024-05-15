@@ -80,7 +80,7 @@ def show_heatmap(df, title: str):
     plt.ylabel('Cluster')
     plt.title(f'Cluster Means Heatmap {title}')
     # Show the plot
-    plt.show()
+    plt.close()
 
 
 def split_df_based_on_Af_quantile(df_q: pd.DataFrame, quantile: float) -> (pd.DataFrame, pd.DataFrame):
@@ -102,6 +102,7 @@ def split_sfh_mfh(df_to_split: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
 
 def normalize_df(df_to_norm: pd.DataFrame) -> pd.DataFrame:
     # normalize the dfs:
+    # to make sure that all columns contain numbers:
     df_norm = (df_to_norm - df_to_norm.min()) / (df_to_norm.max() - df_to_norm.min())
     return df_norm
 
@@ -172,7 +173,7 @@ def plot_score_results(name: str, x_values: list, y_values: list):
     plt.grid(which="both")
     plt.title(f"{name}")
     plt.savefig(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\figures") / f"{name}.png")
-    plt.show()
+    plt.close()
 
 
 def find_number_of_cluster(min_number: int,
@@ -274,7 +275,7 @@ def create_new_building_df_from_cluster(number_of_cluster: dict,
     count_ids = {}
     for name, n_cluster in number_of_cluster.items():
         # normalize df before clustering
-        normalized_df = normalize_df(cluster_dict[name])
+        normalized_df = normalize_df(cluster_dict[name].drop(columns=["person_num"]))
         cluster_labels = kmeans_cluster(normalized_df, n_cluster)
 
         # add cluster labels to original df
@@ -344,12 +345,12 @@ def plot_cluster_dict(dict_dfs: dict, region: str):
     sns.scatterplot(data=plot_df_mfh, x=plot_df_mfh.index, y="Af", hue="type", alpha=0.5)
     plt.title(f"MFH floor area {region}")
     plt.savefig(Path("figures") / "MFH_floor_are.svg")
-    plt.show()
+    plt.close()
 
     sns.scatterplot(data=plot_df_sfh, x=plot_df_sfh.index, y="Af", hue="type", alpha=0.5)
     plt.title(f"SFH floor area {region}")
     plt.savefig(Path("figures") / "SFH_floor_are.svg")
-    plt.show()
+    plt.close()
 
 
 def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) -> pd.DataFrame:
@@ -460,7 +461,7 @@ def scenario_table_for_flex_model(new_building_df: pd.DataFrame, region: str) ->
     return scenario_start
 
 
-def plot_year_nr_clusters(plot_dict: dict, scen: str):
+def plot_year_nr_clusters(plot_dict: dict, scen: str, region: str):
     plot_df = pd.DataFrame.from_dict(
         data=plot_dict, orient="index", columns=["number"]
     ).reset_index().rename(columns={"index": "type"})
@@ -469,9 +470,10 @@ def plot_year_nr_clusters(plot_dict: dict, scen: str):
                 x="type",
                 y="number",
                 hue="year")
-    plt.title(f"Number of clusters for each year and building type in {scen}")
-    plt.savefig(Path(r"figures") / f"number_of_clusters_year_type_{scen}.svg")
-    plt.show()
+    plt.ylim(0, 20)
+    plt.title(f"Number of clusters for each year and building type in {scen}_{region}")
+    plt.savefig(Path(r"figures") / f"number_of_clusters_year_type_{scen}_{region}.svg")
+    plt.close()
 
 
 def create_folder(folder_path: Path):
@@ -494,7 +496,7 @@ def main(region: str, years: list, scenarios: list):
             for sfh_or_mfh, cluster_df in cluster_dict.items():
                 number = find_number_of_cluster(min_number=5,
                                                 max_number=min([len(cluster_df) - 20, len(cluster_df)//4, 20]),
-                                                df_norm=normalize_df(cluster_df),
+                                                df_norm=normalize_df(cluster_df.drop(columns=["person_num"])),
                                                 sfh_mfh=sfh_or_mfh,
                                                 year=year,
                                                 scen=scenario,
@@ -502,7 +504,8 @@ def main(region: str, years: list, scenarios: list):
                                                 )
                 number_of_cluster[sfh_or_mfh] = number
                 year_number_of_cluster[f"{sfh_or_mfh} {year}"] = number
-
+            for key, dataframe in cluster_dict.items():
+                cluster_dict[key] = dataframe.apply(lambda x: pd.to_numeric(x, errors="raise"))
             new_df = create_new_building_df_from_cluster(number_of_cluster=number_of_cluster,
                                                          cluster_dict=cluster_dict,
                                                          old_df=df,
@@ -519,11 +522,11 @@ def main(region: str, years: list, scenarios: list):
             start_scenario = scenario_table_for_flex_model(new_building_df=new_df, region=region)
             start_scenario.to_excel(output_folder / f"Scenario_start_{region}_{year}_{scenario}.xlsx", index=False)
         # create plot showing the number of clusters for each category over the years:
-        plot_year_nr_clusters(year_number_of_cluster, scenario)
+        plot_year_nr_clusters(year_number_of_cluster, scenario, region)
 
 
 if __name__ == "__main__":
-    region = "Murcia"
+    region = "Leeuwarden"
     years = [2020, 2030, 2040, 2050]
     scenarios = ["high_eff", "moderate_eff"]
 
