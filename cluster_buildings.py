@@ -466,10 +466,15 @@ def plot_year_nr_clusters(plot_dict: dict, scen: str, region: str):
         data=plot_dict, orient="index", columns=["number"]
     ).reset_index().rename(columns={"index": "type"})
     plot_df[['type', 'year']] = plot_df['type'].str.split(' ', expand=True)
+    mapping = {"sfh_lower": "SFH below 90th percentile",
+               "sfh_upper": "SFH above 90th percentile",
+               "mfh_lower": "MFH below 90th percentile",
+               "mfh_upper": "MFH above 90th percentile"}
+    plot_df["type"] = plot_df["type"].replace(mapping)
     sns.barplot(data=plot_df,
-                x="type",
+                x="year",
                 y="number",
-                hue="year")
+                hue="type")
     plt.ylim(0, 20)
     plt.title(f"Number of clusters for each year and building type in {scen}_{region}")
     plt.savefig(Path(r"figures") / f"number_of_clusters_year_type_{scen}_{region}.svg")
