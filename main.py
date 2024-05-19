@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
 from load_invert_data import get_number_of_buildings_from_invert, get_probabilities_for_building_to_change, \
-    update_city_buildings, calculate_5R1C_necessary_parameters
+    update_city_buildings, calculate_5R1C_necessary_parameters_murcia
 from cluster_buildings import main as cluster_main
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
@@ -496,7 +496,7 @@ def convert_to_float(column):
 
 def get_related_5R1C_parameters(df: pd.DataFrame, year: int, country_name: str, scen: str) -> (pd.DataFrame, pd.DataFrame):
     # calculate all necessary parameters for the 5R1C model:
-    final_df = calculate_5R1C_necessary_parameters(df, year, country_name, scen)
+    final_df = calculate_5R1C_necessary_parameters_murcia(df, year, country_name, scen)
 
     # create the dataframe with 5R1C parameters
     building_df, total_df = Create5R1CParameters(df=final_df).main()
@@ -534,7 +534,7 @@ def create_2020_baseline_building_distribution(region: dict,
 
     # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
     building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city_name}_non_clustered_{year}_{scen}.xlsx",
+        Path(f"output_data") / f"ECEMF_T4.3_{city_name}_{year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
     )
     print("saved OperationScenario_Component_Building to xlsx")
@@ -622,9 +622,9 @@ if __name__ == '__main__':
 
             # load the old non clustered buildings:
             old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                          f"{old_year}_{scenario}_combined_building_df_Murcia_non_clustered.xlsx")
-            old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                     f"OperationScenario_Component_Building_Murcia_non_clustered_{old_year}_{scenario}.xlsx")
+                                          f"{old_year}_{scenario}_combined_building_df_Murcia_non_clustered.xlsx", engine="openpyxl")
+            old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") / f"ECEMF_T4.3_{city_name}_{old_year}_{scenario}" /
+                                     f"OperationScenario_Component_Building.xlsx", engine="openpyxl")
 
             update_city_buildings(probability=propb,
                                   new_building_pool=bc_new_pool,
@@ -665,7 +665,7 @@ if __name__ == '__main__':
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    print("starting clustering procedure")
-    cluster_main(region=city_name, years=[2020]+years, scenarios=scenarios)
+    # print("starting clustering procedure")
+    # cluster_main(region=city_name, years=[2020]+years, scenarios=scenarios)
     # Then the data has to be copied from the respective FLEX folder from OSM/output_data to the FLEX repo.
 

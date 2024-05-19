@@ -303,8 +303,7 @@ def get_probabilities_for_building_to_change(
         scen: str,
         country: str,
         city: str
-
-                                             ) -> (pd.DataFrame, pd.DataFrame):
+    ) -> (pd.DataFrame, pd.DataFrame): # type: ignore
     buildings_2020 = get_number_of_buildings_from_invert(country, old_year, scen=scen)
     buildings_2030 = get_number_of_buildings_from_invert(country, new_year, scen=scen)
 
@@ -349,7 +348,7 @@ def get_parameters_from_dynamic_calc_data(df: pd.DataFrame, year: int, country: 
     return merged_df
 
 
-def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
+def calculate_5R1C_necessary_parameters_murcia(df, year: int, country: str, scen: str):
     # number of floors
     df.loc[:, "floors"] = df.loc[:, "altura_max"] + 1
     # height of the building
@@ -364,6 +363,11 @@ def calculate_5R1C_necessary_parameters(df, year: int, country: str, scen: str):
     # ration of adjacent to not adjacent (to compare it to invert later)
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
     df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
+
+    # using the "numero_viv" from Urban3R results in 13000 more people in our area
+    # df_return["floor_area"] = df_return["floors"] * df_return["area"]
+    # df_return.loc[:, "person_num"] = df_return.loc[:, "floor_area"] / 50  # from Hotmaps (31.85 m²/person) with an increase because hotmaps uses heated floor area
+    # df_return.loc[:, "person_num"] = df_return.loc[:, "person_num"].apply(lambda x: round(x))
 
     # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
     # of persons per dwelling from invert
@@ -395,10 +399,11 @@ def calculate_5R1C_necessary_parameters_leeuwarden(df, year: int, country: str, 
     df.loc[:, "percentage attached surface area"] = df.loc[:, "adjacent area (m2)"] / df.loc[:, "wall area (m2)"]
     df_return = get_parameters_from_dynamic_calc_data(df, year, country, scen)
 
-    # demographic information: number of persons per house is number of dwellings (numero_viv) from Urban3R times number
-    # of persons per dwelling from invert
-    df_return.loc[:, "person_num"] = df_return.loc[:, "number_of_dwellings_per_building"] * df_return.loc[:,
-                                                                                            "number_of_persons_per_dwelling"]
+    # demographic information: number of persons per house is 41.08 m²/person from Hotmaps of the LAU area of Leeuwarden
+    df_return["floor_area"] = df_return["floors"] * df_return["area"]
+    df_return.loc[:, "person_num"] = df_return.loc[:, "floor_area"] / 60  # from Hotmaps (41m2) with an increase because hotmaps uses heated floor area
+    df_return.loc[:, "person_num"] = df_return.loc[:, "person_num"].apply(lambda x: round(x))
+    
     # correct the person number because this way it is too high: reduce person number by 1 if the area is below 60m2
     # minimum person numbers in invert is 2...
     df_return.loc[:, "person_num"] = df_return.apply(
@@ -478,7 +483,7 @@ def update_city_buildings(probability: pd.DataFrame,
         # drop the CM factor and Am factor because they need to be replaced by the new buildings:
         new_df.drop(columns=["CM_factor", "Am_factor"], inplace=True)
         if country.lower() == "spain":
-            new_df_with_5R1C = calculate_5R1C_necessary_parameters(new_df, new_year, country=country, scen=scen)
+            new_df_with_5R1C = calculate_5R1C_necessary_parameters_murcia(new_df, new_year, country=country, scen=scen)
         else:
             new_df_with_5R1C = calculate_5R1C_necessary_parameters_leeuwarden(new_df, new_year, country=country, scen=scen)
 
@@ -501,7 +506,7 @@ def update_city_buildings(probability: pd.DataFrame,
         index=False
     )
     new_building_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city}_non_clustered_{new_year}_{scen}.xlsx",
+        Path(f"output_data") / f"ECEMF_T4.3_{city}_{new_year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
     )
     print(f"saved building xlsx for {new_year}")
@@ -518,9 +523,9 @@ if __name__ == "__main__":
 
     # load the old non clustered buildings:
     old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                  "2020_combined_building_df_Murcia_non_clustered.xlsx")
-    old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                             "OperationScenario_Component_Building_Murcia_non_clustered_2020.xlsx")
+                                  "2020_combined_building_df_Murcia_non_clustered.xlsx", engine="openpyxl")
+    old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") / "ECEMF_T4.3_Murcia_2020_H" /
+                             "OperationScenario_Component_Building.xlsx", engine="openpyxl")
 
     update_city_buildings(choices=choices,
                           new_building_pool=bc_2030_new_pool,

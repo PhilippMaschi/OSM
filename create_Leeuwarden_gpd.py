@@ -377,7 +377,7 @@ def create_2020_base_files(scen: str, city: str):
 
     # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
     building_parameters_df.to_excel(
-        Path(f"output_data") / f"OperationScenario_Component_Building_{city}_non_clustered_{Year}_{scen}.xlsx",
+        Path(f"output_data") / f"ECEMF_T4.3_{city}_{Year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
     )
     total_df.to_excel(
@@ -418,9 +418,9 @@ def main():
 
             # load the old non clustered buildings:
             old_buildings = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                          f"{old_year}_{scenario}_combined_building_df_{city_name}_non_clustered.xlsx")
-            old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") /
-                                     f"OperationScenario_Component_Building_{city_name}_non_clustered_{old_year}_{scenario}.xlsx")
+                                          f"{old_year}_{scenario}_combined_building_df_{city_name}_non_clustered.xlsx", engine="openpyxl")
+            old_5R1C = pd.read_excel(Path(r"C:\Users\mascherbauer\PycharmProjects\OSM\output_data") / f"ECEMF_T4.3_{city_name}_{old_year}_{scenario}" /
+                                     f"OperationScenario_Component_Building.xlsx", engine="openpyxl")
 
             update_city_buildings(probability=propb,
                                   new_building_pool=bc_new_pool,
@@ -460,8 +460,8 @@ def main():
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # after all this cluster_buildings.py has to be run to get the start data for the ECEMF runs done in FLEX.
     #  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-    print("starting clustering procedure")
-    cluster_main(region=city_name, years=[2020] + years, scenarios=scenarios)
+    # print("starting clustering procedure")
+    # cluster_main(region=city_name, years=[2020] + years, scenarios=scenarios)
     # Then the data has to be copied from the respective FLEX folder from OSM/output_data to the FLEX repo.
 
 
