@@ -519,10 +519,10 @@ def fix_number_of_persons_per_building(df: pd.DataFrame):
 def check_building_dfs_for_unrealistic_parameters(df_5r1c: pd.DataFrame, df_total: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
     # in the 5R1C building there should not exist any negative parameters whatsoever:
     numeric_cols = df_5r1c.select_dtypes(include='number').columns
-    negative_scenarios = df_5r1c[df_5r1c[numeric_cols].lt(0).any(axis=1)]['ID_Scenario'].tolist()
+    negative_scenarios = df_5r1c[df_5r1c[numeric_cols].lt(0).any(axis=1)]['ID_Building'].tolist()
 
-    df_5r1c_filtered = df_5r1c[~df_5r1c["ID_Scenario"].isin(negative_scenarios)]
-    df_total_filtered = df_total[~df_total['ID_Scenario'].isin(negative_scenarios)]
+    df_5r1c_filtered = df_5r1c[~df_5r1c["ID_Building"].isin(negative_scenarios)]
+    df_total_filtered = df_total[~df_total['ID_Building'].isin(negative_scenarios)]
     return df_5r1c_filtered, df_total_filtered
 
 def create_2020_baseline_building_distribution(region: dict,
