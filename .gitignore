@@ -9,6 +9,17 @@
 *.prj
 *.shp
 *.shx
+*.tif
+*.geojson
+*.gpkg
+*.tiff
+*.gpkg-shm
+*.gpkg-wal
+*.hdf5
+*.npz
+*.html
+*.jsonl
+
 
 __pycache__/
 # Distribution / packaging

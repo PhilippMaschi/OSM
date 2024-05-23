@@ -2,7 +2,8 @@ import geopandas as gpd
 from pathlib import Path
 import pandas as pd
 from main import BASE_EPSG, LEEUWARDEN, find_construction_period, create_flex_input_folders, create_boiler_excel, \
-    create_behavior_excel, create_people_at_home_profiles, save_to_all_years_in_flex_folders
+    create_behavior_excel, create_people_at_home_profiles, save_to_all_years_in_flex_folders, fix_number_of_persons_per_building, \
+    drop_completly_enclosed_buildings, check_building_dfs_for_unrealistic_parameters
 from tqdm import tqdm
 from load_invert_data import get_number_of_buildings_from_invert, get_probabilities_for_building_to_change, \
     update_city_buildings, calculate_5R1C_necessary_parameters_leeuwarden
@@ -375,17 +376,33 @@ def create_2020_base_files(scen: str, city: str):
                                                                     year=Year,
                                                                     scen=scen)
 
+    # supply temperature is set to 38°C
+    building_parameters_df["supply_temperature"] = 38
+  
+    # add Af to the total df for later analysis:
+    total_df = total_df.merge(building_parameters_df[['ID_Building', 'Af']], on='ID_Building', how='left')
+    # clean the dataframe from buildings that are 100% enclosed:
+    building_df_clean, total_df_clean = drop_completly_enclosed_buildings(total_df, building_parameters_df)
+
+    # now change the number of persons per building if the area per person is too small
+    building_df_clean = fix_number_of_persons_per_building(df=building_df_clean)
+    total_df_clean = fix_number_of_persons_per_building(df=total_df_clean)
+    
+    # drop buildings that have unrealistic values
+    building_df_fixed, total_df_fixed = check_building_dfs_for_unrealistic_parameters(df_5r1c=building_df_clean, df_total=total_df_clean)
+    print(f"{len(building_parameters_df)-len(building_df_fixed)} Buildings are excluded from analysis because auf bad data or complete enclosure")
+
     # save the building df and total df for 2020 once. These dataframes will be reused for the following years:
-    building_parameters_df.to_excel(
+    building_df_fixed.to_excel(
         Path(f"output_data") / f"ECEMF_T4.3_{city}_{Year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
     )
-    total_df.to_excel(
+    total_df_fixed.to_excel(
         Path(f"output_data") / f"{Year}_{scen}_combined_building_df_{city}_non_clustered.xlsx",
         index=False
     )
 
-    coordinate_df = gpd.GeoDataFrame(total_df[["geometry", "ID_Building"]])
+    coordinate_df = gpd.GeoDataFrame(total_df_fixed[["geometry", "ID_Building"]])
     df_loc = add_location_point_to_gdf(coordinate_df).set_geometry("location").drop(columns=["geometry"])
     # create csv file with coordinates and shp file with dots to check in QGIS
     df_loc.to_file(Path(r"output_data") / f"{scen}_building_coordinates_{city}.shp",

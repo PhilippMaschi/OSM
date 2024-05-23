@@ -505,6 +505,7 @@ def update_city_buildings(probability: pd.DataFrame,
         Path(f"output_data") / f"{new_year}_{scen}_combined_building_df_{city}_non_clustered.xlsx",
         index=False
     )
+    new_building_df["supply_temperature"] = 38
     new_building_df.to_excel(
         Path(f"output_data") / f"ECEMF_T4.3_{city}_{new_year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
