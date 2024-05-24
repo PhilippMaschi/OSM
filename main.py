@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from pathlib import Path
 from load_invert_data import get_number_of_buildings_from_invert, get_probabilities_for_building_to_change, \
-    update_city_buildings, calculate_5R1C_necessary_parameters_murcia
+    update_city_buildings, calculate_5R1C_necessary_parameters_murcia ,drop_completly_enclosed_buildings, \
+        check_building_dfs_for_unrealistic_parameters, fix_number_of_persons_per_building
 from cluster_buildings import main as cluster_main
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
@@ -502,31 +503,6 @@ def get_related_5R1C_parameters(df: pd.DataFrame, year: int, country_name: str, 
     building_df, total_df = Create5R1CParameters(df=final_df).main()
     return building_df, total_df
 
-def drop_completly_enclosed_buildings(all_df, scenario_df) -> (pd.DataFrame, pd.DataFrame):
-    df_clean = all_df.loc[all_df.loc[:, "free wall area (m2)"] != 0, :]
-    ids_to_keep = df_clean.loc[:, "ID_Building"].to_list()
-    building_df_clean = scenario_df.loc[scenario_df.loc[:, "ID_Building"].isin(ids_to_keep), :]
-    return building_df_clean, df_clean
-
-def fix_number_of_persons_per_building(df: pd.DataFrame):
-    # to avoid division by 0 first set number of persons to 1 if they are 0
-    if "person_num" in df.columns:
-        df.loc[df.loc[:, "person_num"] < 1, "person_num"] = 1
-    # if the ratio of area to persons is below 20, we raise it to 40m2/person:
-    df.loc[:, "person_num"] = df.apply(lambda x: max(round(x["Af"] / 40), 1) if (x["Af"] / x["person_num"])<20 else x, axis=1)
-    return df
-
-def check_building_dfs_for_unrealistic_parameters(df_5r1c: pd.DataFrame, df_total: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
-    # in the 5R1C building there should not exist any negative parameters whatsoever:
-    # negative parameters occur if for example the building height is negative (which is the case in some buildings)
-    # so these buildings will be excluded from the analysis as the source data can not be trusted
-    df_5r1c = df_5r1c.apply(pd.to_numeric, errors='ignore')
-    numeric_cols = df_5r1c.select_dtypes(include='number').columns
-    negative_scenarios = df_5r1c[df_5r1c[numeric_cols].lt(0).any(axis=1)]['ID_Building'].tolist()
-
-    df_5r1c_filtered = df_5r1c[~df_5r1c["ID_Building"].isin(negative_scenarios)]
-    df_total_filtered = df_total[~df_total['ID_Building'].isin(negative_scenarios)]
-    return df_5r1c_filtered, df_total_filtered
 
 def create_2020_baseline_building_distribution(region: dict,
                                                city_name: str,
@@ -564,6 +540,7 @@ def create_2020_baseline_building_distribution(region: dict,
     total_df.loc[:, "ID_Building"] = np.arange(1, total_df.shape[0] + 1)
     # add Af to the total df for later analysis:
     total_df = total_df.merge(building_df[['ID_Building', 'Af']], on='ID_Building', how='left')
+   
     # clean the dataframe from buildings that are 100% enclosed:
     building_df_clean, total_df_clean = drop_completly_enclosed_buildings(total_df, building_df)
 
@@ -574,6 +551,7 @@ def create_2020_baseline_building_distribution(region: dict,
     # drop buildings that have unrealistic values
     building_df_fixed, total_df_fixed = check_building_dfs_for_unrealistic_parameters(df_5r1c=building_df_clean, df_total=total_df_clean)
     print(f"{len(building_df)-len(building_df_fixed)} Buildings are excluded from analysis because auf bad data or complete enclosure")
+    
     # save building df
     building_df_fixed.to_excel(
         Path(f"output_data") / f"ECEMF_T4.3_{city_name}_{year}_{scen}" / f"OperationScenario_Component_Building.xlsx",

@@ -132,6 +132,37 @@ SFH_MFH = {
 }
 
 
+def drop_completly_enclosed_buildings(all_df, scenario_df) -> (pd.DataFrame, pd.DataFrame):
+    df_clean = all_df.loc[all_df.loc[:, "free wall area (m2)"] != 0, :]
+    ids_to_keep = df_clean.loc[:, "ID_Building"].to_list()
+    building_df_clean = scenario_df.loc[scenario_df.loc[:, "ID_Building"].isin(ids_to_keep), :]
+    return building_df_clean, df_clean
+
+def fix_number_of_persons_per_building(df: pd.DataFrame):
+    # to avoid division by 0 first set number of persons to 1 if they are 0
+    if "person_num" in df.columns:
+        # if the number of persons is a float
+        df = df.round({"person_num": 0})
+        df.loc[df.loc[:, "person_num"] < 1, "person_num"] = 1
+    # if the ratio of area to persons is below 20, we raise it to 40m2/person:
+    df.loc[:, "person_num"] = df.apply(lambda x: max(round(x["Af"] / 40), 1) if (x["Af"] / x["person_num"])<20 else x, axis=1)
+    # if the number of persons is a float
+    df = df.round({"person_num": 0})
+    return df
+
+def check_building_dfs_for_unrealistic_parameters(df_5r1c: pd.DataFrame, df_total: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
+    # in the 5R1C building there should not exist any negative parameters whatsoever:
+    # negative parameters occur if for example the building height is negative (which is the case in some buildings)
+    # so these buildings will be excluded from the analysis as the source data can not be trusted
+    df_5r1c = df_5r1c.apply(pd.to_numeric, errors='ignore')
+    numeric_cols = df_5r1c.select_dtypes(include='number').columns
+    negative_scenarios = df_5r1c[df_5r1c[numeric_cols].lt(0).any(axis=1)]['ID_Building'].tolist()
+
+    df_5r1c_filtered = df_5r1c[~df_5r1c["ID_Building"].isin(negative_scenarios)]
+    df_total_filtered = df_total[~df_total['ID_Building'].isin(negative_scenarios)]
+    return df_5r1c_filtered, df_total_filtered
+
+
 def select_invert_building(gdf_row, invert_selection: pd.DataFrame):
     # check if the construction year from urban3r is available in invert:
 
@@ -500,13 +531,18 @@ def update_city_buildings(probability: pd.DataFrame,
     # oder the dfs after the ID_Building:
     new_total_df.sort_values(by="ID_Building", inplace=True)
     new_building_df.sort_values(by="ID_Building", inplace=True)
+
+    # now change the number of persons per building if the area per person is too small
+    building_df_clean = fix_number_of_persons_per_building(df=new_building_df)
+    total_df_clean = fix_number_of_persons_per_building(df=new_total_df)
+
     # save the dataframes
-    new_total_df.to_excel(
+    total_df_clean.to_excel(
         Path(f"output_data") / f"{new_year}_{scen}_combined_building_df_{city}_non_clustered.xlsx",
         index=False
     )
-    new_building_df["supply_temperature"] = 38
-    new_building_df.to_excel(
+    building_df_clean["supply_temperature"] = 38
+    building_df_clean.to_excel(
         Path(f"output_data") / f"ECEMF_T4.3_{city}_{new_year}_{scen}" / f"OperationScenario_Component_Building.xlsx",
         index=False
     )

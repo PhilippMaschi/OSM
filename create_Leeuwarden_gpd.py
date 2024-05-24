@@ -2,11 +2,12 @@ import geopandas as gpd
 from pathlib import Path
 import pandas as pd
 from main import BASE_EPSG, LEEUWARDEN, find_construction_period, create_flex_input_folders, create_boiler_excel, \
-    create_behavior_excel, create_people_at_home_profiles, save_to_all_years_in_flex_folders, fix_number_of_persons_per_building, \
-    drop_completly_enclosed_buildings, check_building_dfs_for_unrealistic_parameters
+    create_behavior_excel, create_people_at_home_profiles, save_to_all_years_in_flex_folders
+    
 from tqdm import tqdm
 from load_invert_data import get_number_of_buildings_from_invert, get_probabilities_for_building_to_change, \
-    update_city_buildings, calculate_5R1C_necessary_parameters_leeuwarden
+    update_city_buildings, calculate_5R1C_necessary_parameters_leeuwarden, drop_completly_enclosed_buildings, \
+        check_building_dfs_for_unrealistic_parameters, fix_number_of_persons_per_building
 from mosis_wonder import calc_premeter
 from convert_to_5R1C import Create5R1CParameters
 import numpy as np
